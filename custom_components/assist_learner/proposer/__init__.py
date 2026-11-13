@@ -109,7 +109,11 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
         for learner in learners:
             if not learner.accepts(miss):
                 continue
-            cand = learner.extract(miss)
+            try:
+                cand = learner.extract(miss)
+            except Exception:  # one bad record must never stop the nightly run
+                _LOGGER.exception("Could not extract a template from a miss")
+                cand = None
             if cand is None:
                 miss.unalignable = True
                 miss.processed = True

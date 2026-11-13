@@ -29,9 +29,14 @@ def fingerprint(template: str) -> str:
 def sample_text(template: str, values: dict[str, str]) -> str:
     """Minimal expansion of a template: optionals dropped, first alternative, slots filled."""
     filled = _SLOT_RE.sub(lambda m: values.get(m.group(1), m.group(1)), template)
-    sentence = parse_sentence(filled)
-    for text in sample_sentence(sentence, skip_optionals=True):
-        return " ".join(text.split())
+    if not filled.strip():
+        return ""
+    try:
+        sentence = parse_sentence(filled)
+        for text in sample_sentence(sentence, skip_optionals=True):
+            return " ".join(text.split())
+    except Exception:  # hassil raises bare AssertionErrors on degenerate input; never crash the nightly run
+        pass
     return " ".join(filled.split())
 
 

@@ -77,3 +77,12 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
 - 2026-11-13 — Panel is verified only by a jsdom smoke test (`tests/frontend/panel_smoke.mjs`, renders every tab with a
   mocked `hass.callWS`) — NOT in a real browser against a live HA. Do a manual look in HA before release.
   jsdom must be v24 on Node 20 (newer jsdom needs a newer Node).
+
+## Hardening
+- 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
+  habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.
+- 2026-11-13 — hassil can raise bare `AssertionError` on degenerate templates (e.g. "( )"). Template sampling and
+  per-miss extraction are wrapped so one bad record never aborts the nightly run.
+- 2026-11-13 — Update proposals (template differs from a learned one only by optionals) must be allowed to match our
+  OWN learned intent in the "already local"/greediness checks (`allow_learned`), otherwise they are always dropped.
+- 2026-11-13 — Replay harness: `python -m custom_components.assist_learner.replay misses.json` (static checks only).

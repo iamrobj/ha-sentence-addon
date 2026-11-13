@@ -28,12 +28,27 @@ COLLECTIONS = (
 )
 
 
+class _MigratingStore(Store[dict[str, Any]]):
+    """Versioned JSON store with one migration step per schema version."""
+
+    async def _async_migrate_func(self, old_major_version, old_minor_version, old_data):
+        return migrate_data(old_major_version, old_data)
+
+
+def migrate_data(version: int, data: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade stored data one version at a time up to STORE_VERSION (v1 is the first schema)."""
+    if version > STORE_VERSION:
+        raise ValueError(f"Stored data version {version} is newer than supported {STORE_VERSION}")
+    # example for the future: if version < 2: data = {...}; version = 2
+    return data
+
+
 class Collection:
     """A dict-of-dicts persisted to one storage file."""
 
     def __init__(self, hass: HomeAssistant, name: str) -> None:
         self.name = name
-        self._store: Store[dict[str, Any]] = Store(hass, STORE_VERSION, f"{DOMAIN}.{name}")
+        self._store: Store[dict[str, Any]] = _MigratingStore(hass, STORE_VERSION, f"{DOMAIN}.{name}")
         self.items: dict[str, dict[str, Any]] = {}
 
     async def async_load(self) -> None:

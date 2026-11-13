@@ -147,3 +147,10 @@ def _register_services(hass: HomeAssistant) -> None:
     reg(hass, DOMAIN, "reject", reject, vol.Schema({vol.Required("proposal_id"): str, vol.Optional("note"): str}))
     reg(hass, DOMAIN, "disable_learned", disable_learned, vol.Schema({vol.Required("learned_id"): str}))
     reg(hass, DOMAIN, "delete_learned", delete_learned, vol.Schema({vol.Required("learned_id"): str}))
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Config-entry migrations (version 1 is current; newer entries cannot be downgraded)."""
+    if entry.version > 1:
+        return False
+    return True
