@@ -44,3 +44,8 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   `async_add_assistant_content` raises "No LLM API configured" for non-external tool calls.
 - 2026-11-13 — Legacy-agent test double: `conversation.async_set_agent(hass, <obj with entry_id>, agent)` registers
   an agent id usable with `async_converse(agent_id=<entry_id>)`.
+- 2026-11-13 — `DefaultAgent.async_recognize_intent` returns a RecognizeResult even for PARTIAL matches (e.g.
+  "put on lose control" -> HassTurnOn with `unmatched_entities`). A real local match is
+  `result is not None and not result.unmatched_entities` (same test HA uses). Encoded in `recognizer.py`.
+- 2026-11-13 — hassil: use `parse_sentence` + `sample_sentence(skip_optionals=True)` to expand templates; fill
+  `{slot}` placeholders with plain text BEFORE parsing.

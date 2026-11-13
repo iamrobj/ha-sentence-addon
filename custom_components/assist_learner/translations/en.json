@@ -43,5 +43,11 @@
         "persistent": "Persistent notification"
       }
     }
+  },
+  "services": {
+    "run_proposer": {
+      "name": "Run proposer",
+      "description": "Turn logged LLM fallbacks into proposed local sentence templates now."
+    }
   }
 }

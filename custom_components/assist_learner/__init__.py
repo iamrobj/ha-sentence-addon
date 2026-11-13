@@ -7,9 +7,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.helpers.event import async_track_time_change
+from homeassistant.util import dt as dt_util
 
-from .const import DEFAULT_OPTIONS
+from .const import CONF_RUN_TIME, DEFAULT_OPTIONS, DOMAIN
 from .store import AssistLearnerStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,6 +46,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
     store = AssistLearnerStore(hass)
     await store.async_load()
     entry.runtime_data = RuntimeData(store=store)
+    _schedule_nightly(hass, entry)
+    _register_services(hass)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -58,3 +62,31 @@ async def async_unload_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntr
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _schedule_nightly(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    run_time = dt_util.parse_time(get_options(entry)[CONF_RUN_TIME]) or dt_util.parse_time("03:15:00")
+
+    async def _run(_now) -> None:
+        from .proposer import async_run_proposer
+
+        await async_run_proposer(hass, entry)
+
+    entry.async_on_unload(
+        async_track_time_change(
+            hass, _run, hour=run_time.hour, minute=run_time.minute, second=run_time.second
+        )
+    )
+
+
+def _register_services(hass: HomeAssistant) -> None:
+    if hass.services.has_service(DOMAIN, "run_proposer"):
+        return
+
+    async def _run_proposer(call: ServiceCall) -> None:
+        from .proposer import async_run_proposer
+
+        for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+            await async_run_proposer(hass, entry)
+
+    hass.services.async_register(DOMAIN, "run_proposer", _run_proposer)
