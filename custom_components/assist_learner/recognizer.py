@@ -36,7 +36,7 @@ async def async_match(hass: HomeAssistant, text: str, language: str) -> Match | 
     if result is None or result.unmatched_entities:
         # HA returns partial matches (unmatched entities) for error messaging; not a real match
         return None
-    slots = {name: str(getattr(s, "text", s.value)) for name, s in result.entities.items()}
+    slots = {name: str(s.value) for name, s in result.entities.items()}
     return Match(intent_name=result.intent.name, slots=slots)
 
 

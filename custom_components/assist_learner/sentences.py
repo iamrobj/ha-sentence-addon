@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from . import recognizer
+from .commands.model import scope_sentence, slot_scope
 from .const import CONF_LANGUAGE
 from .players import list_players, player_list_values
 
@@ -52,11 +53,24 @@ def build_document(
         lists["artist"] = {"wildcard": True}
         lists["player"] = {"values": player_values or [{"in": "nowhere", "out": "none"}]}
 
-    cmd_blocks = [
-        {"sentences": list(c["sentences"]), "slots": {"command_id": c["id"]}}
-        for c in commands
-        if c.get("status") == "active" and c.get("sentences")
-    ]
+    cmd_blocks = []
+    for c in commands:
+        if c.get("status") != "active" or not c.get("sentences"):
+            continue
+        slots = c.get("slots") or {}
+        cmd_blocks.append(
+            {
+                "sentences": [scope_sentence(x, c["id"], set(slots)) for x in c["sentences"]],
+                "slots": {"command_id": c["id"]},
+            }
+        )
+        for name, sdef in slots.items():
+            if sdef["type"] == "number":
+                lists[slot_scope(c["id"], name)] = {
+                    "range": {"from": int(sdef["min"]), "to": int(sdef["max"]), "step": int(sdef.get("step", 1))}
+                }
+            else:
+                lists[slot_scope(c["id"], name)] = {"values": list(sdef["values"])}
     if cmd_blocks:
         intents[COMMAND_INTENT] = {"data": cmd_blocks}
 

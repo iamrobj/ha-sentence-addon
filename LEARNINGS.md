@@ -52,3 +52,18 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
 - 2026-11-13 — **Do not name a module `intent.py`** (or `conversation.py` is fine because we ARE a conversation
   platform, `sensor.py`, `button.py` likewise): HA treats `<integration>/intent.py` as the `intent` platform and
   calls `async_setup_intents`. Our runtime handlers live in `handlers.py` (plan §4 said `intent.py`).
+
+## Custom commands (phases 6-7) decisions
+- 2026-11-13 — Build order deviates from the plan: backend for custom commands/actions/import first, THEN
+  websocket API + panel (so the panel is written once against the full API). Same scope, different order.
+- 2026-11-13 — Custom commands support ONLY `number` and `choice` slots (no wildcards at all in v1): simplest
+  way to satisfy "no wildcards in action commands" and "wildcards need literal anchors".
+- 2026-11-13 — YAML `lists` are global per file, so command slots are scoped as `<cmd_id>_<slot>`
+  (`commands/model.py: scope_sentence/slot_scope`). Number slots use hassil `range` lists.
+- 2026-11-13 — Unavailable-entity semantics: if a command has an `unavailable_template`, the runtime swaps to it
+  when ANY entity is unavailable/unknown, so only that template must render when entities are unavailable. Without
+  one, the main template must survive unavailable entities (use `| default`).
+- 2026-11-13 — Validation does not check entity supported_features (only existence, domain, service
+  allow-list, field names/ranges from live descriptions, climate min/max). Documented limitation.
+- 2026-11-13 — `async_at_started` callbacks must be `@callback`-decorated or HA runs them in a thread and
+  `hass.async_create_task` raises a thread-safety error.

@@ -12,8 +12,10 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
+from .commands.manager import CommandManager
 from .const import CONF_RUN_TIME, DOMAIN
 from .handlers import async_register_intents, async_unregister_intents
 from .options import get_options
@@ -31,6 +33,7 @@ type AssistLearnerConfigEntry = ConfigEntry["RuntimeData"]
 class RuntimeData:
     store: AssistLearnerStore
     listeners: list[Callable[[], None]] = field(default_factory=list)
+    commands: CommandManager | None = None
 
     @callback
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:
@@ -47,6 +50,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
     store = AssistLearnerStore(hass)
     await store.async_load()
     entry.runtime_data = RuntimeData(store=store)
+    entry.runtime_data.commands = CommandManager(hass, entry)
     _schedule_nightly(hass, entry)
     _register_services(hass)
     entry.async_on_unload(
@@ -56,6 +60,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
     async_register_intents(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # validate active commands once everything (services, entities) has started
+    @callback
+    def _started(_hass: HomeAssistant) -> None:
+        entry.async_create_background_task(
+            hass, entry.runtime_data.commands.revalidate_all(), name=f"{DOMAIN}_revalidate"
+        )
+
+    async_at_started(hass, _started)
     return True
 
 
