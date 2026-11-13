@@ -31,7 +31,20 @@
           "retention_days": "Raw request retention (days, 0 = delete after nightly run)",
           "max_proposals_per_night": "Max new proposals per night",
           "notify": "Notify on new proposals",
-          "ai_task_entity": "AI Task entity (linked LLM)"
+          "enabled_learners": "Enabled learners"
+        }
+      },
+      "runtime": {
+        "title": "Assist Learner runtime",
+        "data": {
+          "ai_task_entity": "AI Task entity (linked LLM)",
+          "send_states_to_llm": "Send current entity states to the LLM",
+          "max_sentences_per_command": "Max sentences per custom command",
+          "rate_limit_per_minute": "Max action runs per minute, per command",
+          "execution_log_size": "Execution log size",
+          "carrier_verbs": "Allowed carrier verbs",
+          "default_player": "Default player",
+          "prefer_calling_device_player": "Prefer the calling device's own player"
         }
       }
     }
@@ -48,6 +61,89 @@
     "run_proposer": {
       "name": "Run proposer",
       "description": "Turn logged LLM fallbacks into proposed local sentence templates now."
+    },
+    "approve": {
+      "name": "Approve proposal",
+      "description": "Approve a pending proposal, optionally with an edited template.",
+      "fields": {
+        "proposal_id": {
+          "name": "Proposal ID",
+          "description": "ID of the pending proposal."
+        },
+        "template": {
+          "name": "Template",
+          "description": "Edited template (re-validated)."
+        }
+      }
+    },
+    "reject": {
+      "name": "Reject proposal",
+      "description": "Reject a pending proposal; it will not be proposed again.",
+      "fields": {
+        "proposal_id": {
+          "name": "Proposal ID",
+          "description": "ID of the pending proposal."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Optional reason."
+        }
+      }
+    },
+    "disable_learned": {
+      "name": "Disable learned template",
+      "description": "Turn a learned template off.",
+      "fields": {
+        "learned_id": {
+          "name": "Learned ID",
+          "description": "ID of the learned template."
+        }
+      }
+    },
+    "delete_learned": {
+      "name": "Delete learned template",
+      "description": "Delete a learned template.",
+      "fields": {
+        "learned_id": {
+          "name": "Learned ID",
+          "description": "ID of the learned template."
+        }
+      }
     }
-  }
+  },
+  "issues": {
+    "proposal": {
+      "title": "New local command: {template}",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Review proposal",
+            "description": "{details}",
+            "menu_options": {
+              "approve": "Approve",
+              "edit": "Edit then approve",
+              "reject": "Reject"
+            }
+          },
+          "edit": {
+            "title": "Edit template",
+            "description": "{reason}",
+            "data": {
+              "template": "Template"
+            }
+          },
+          "reject": {
+            "title": "Reject proposal",
+            "data": {
+              "note": "Note (optional)"
+            }
+          }
+        },
+        "error": {
+          "invalid_template": "Template rejected by safety checks."
+        }
+      }
+    }
+  },
+  "entity": {}
 }

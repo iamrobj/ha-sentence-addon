@@ -1,3 +1,31 @@
 run_proposer:
-  name: Run proposer
-  description: Turn logged LLM fallbacks into proposed local sentence templates now.
+approve:
+  fields:
+    proposal_id:
+      required: true
+      selector:
+        text:
+    template:
+      selector:
+        text:
+reject:
+  fields:
+    proposal_id:
+      required: true
+      selector:
+        text:
+    note:
+      selector:
+        text:
+disable_learned:
+  fields:
+    learned_id:
+      required: true
+      selector:
+        text:
+delete_learned:
+  fields:
+    learned_id:
+      required: true
+      selector:
+        text:

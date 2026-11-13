@@ -15,6 +15,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from ..const import (
+    CONF_AUTO_APPROVE,
+    CONF_AUTO_APPROVE_THRESHOLD,
     CONF_CARRIER_VERBS,
     CONF_ENABLED_LEARNERS,
     CONF_LANGUAGE,
@@ -210,6 +212,22 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
         created.append(proposal)
 
     _apply_retention(store, opts[CONF_RETENTION_DAYS], now)
+    auto = 0
+    if opts[CONF_AUTO_APPROVE]:
+        from ..learned import async_approve
+
+        for p in created:
+            if (
+                p.family == MUSIC_FAMILY
+                and p.count >= opts[CONF_AUTO_APPROVE_THRESHOLD]
+                and not p.warnings
+            ):
+                await async_approve(hass, entry, p.id, auto=True)
+                auto += 1
+    from ..notify import async_notify_proposals
+
+    still_pending = [p for p in created if store.proposals.get(p.id)["status"] == STATUS_PENDING]
+    await async_notify_proposals(hass, entry, still_pending, auto)
     if created:
         hass.bus.async_fire(
             EVENT_PROPOSALS_CREATED, {"count": len(created), "ids": [p.id for p in created]}

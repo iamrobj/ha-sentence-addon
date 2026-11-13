@@ -6,19 +6,23 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_RUN_TIME, DOMAIN
 from .handlers import async_register_intents, async_unregister_intents
 from .options import get_options
+from .repairs import sync_issues
 from .store import AssistLearnerStore
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["conversation", "sensor"]
+PLATFORMS = ["conversation", "sensor", "button"]
 
 type AssistLearnerConfigEntry = ConfigEntry["RuntimeData"]
 
@@ -45,6 +49,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
     entry.runtime_data = RuntimeData(store=store)
     _schedule_nightly(hass, entry)
     _register_services(hass)
+    entry.async_on_unload(
+        entry.runtime_data.async_add_listener(lambda: sync_issues(hass, entry))
+    )
+    sync_issues(hass, entry)
     async_register_intents(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -78,14 +86,48 @@ def _schedule_nightly(hass: HomeAssistant, entry: ConfigEntry) -> None:
     )
 
 
+def _first_entry(hass: HomeAssistant) -> ConfigEntry:
+    entries = hass.config_entries.async_loaded_entries(DOMAIN)
+    if not entries:
+        raise ServiceValidationError("Assist Learner is not set up")
+    return entries[0]
+
+
 def _register_services(hass: HomeAssistant) -> None:
     if hass.services.has_service(DOMAIN, "run_proposer"):
         return
 
-    async def _run_proposer(call: ServiceCall) -> None:
+    async def run_proposer(call: ServiceCall) -> None:
         from .proposer import async_run_proposer
 
         for entry in hass.config_entries.async_loaded_entries(DOMAIN):
             await async_run_proposer(hass, entry)
 
-    hass.services.async_register(DOMAIN, "run_proposer", _run_proposer)
+    async def approve(call: ServiceCall) -> None:
+        from . import learned
+
+        await learned.async_approve(
+            hass, _first_entry(hass), call.data["proposal_id"], call.data.get("template")
+        )
+
+    async def reject(call: ServiceCall) -> None:
+        from . import learned
+
+        await learned.async_reject(hass, _first_entry(hass), call.data["proposal_id"], call.data.get("note"))
+
+    async def disable_learned(call: ServiceCall) -> None:
+        from . import learned
+
+        await learned.async_set_enabled(hass, _first_entry(hass), call.data["learned_id"], False)
+
+    async def delete_learned(call: ServiceCall) -> None:
+        from . import learned
+
+        await learned.async_delete(hass, _first_entry(hass), call.data["learned_id"])
+
+    reg = async_register_admin_service
+    reg(hass, DOMAIN, "run_proposer", run_proposer, vol.Schema({}))
+    reg(hass, DOMAIN, "approve", approve, vol.Schema({vol.Required("proposal_id"): str, vol.Optional("template"): str}))
+    reg(hass, DOMAIN, "reject", reject, vol.Schema({vol.Required("proposal_id"): str, vol.Optional("note"): str}))
+    reg(hass, DOMAIN, "disable_learned", disable_learned, vol.Schema({vol.Required("learned_id"): str}))
+    reg(hass, DOMAIN, "delete_learned", delete_learned, vol.Schema({vol.Required("learned_id"): str}))
