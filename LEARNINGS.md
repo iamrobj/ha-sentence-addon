@@ -16,3 +16,10 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
 ## Decisions (from kickoff)
 - 2026-11-13 — Build scope is full v1 (phases 1–9), committed per phase. Licence MIT. Integration lives at repo
   root (`custom_components/assist_learner`, `hacs.json`).
+
+## Spike findings (HA 2026.11.1)
+- 2026-11-13 — Nested `conversation.async_converse` from inside `_async_handle_message` is supported: the
+  active chat log is reused by conversation_id, so the proxy reads the target's tool calls from the same log.
+  Pass the SAME conversation_id. Details in `docs/spike-notes.md`.
+- 2026-11-13 — No Docker: API confirmation is by reading installed source + pytest-homeassistant-custom-component.
+  Anything needing a live instance is flagged "verify-in-test" in the spike notes.
