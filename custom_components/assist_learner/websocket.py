@@ -13,7 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.yaml import dump as yaml_dump
 from homeassistant.util.yaml import parse_yaml
 
-from . import learned, recognizer
+from . import external, learned, recognizer
 from .const import CONF_LANGUAGE, DOMAIN, STATUS_PENDING
 from .options import get_options
 from .proposer import async_run_proposer
@@ -133,10 +133,12 @@ async def h_sentences_list(hass, entry, msg):
     ext = await entry.runtime_data.commands.import_discover()
     for f in ext["files"]:
         rows.append({"source": "external", "kind": "file", "id": f"{f['file']}#{f['intent']}", "title": f["intent"],
-                     "sentences": f["sentences"], "file": f["file"], "editable": False, "importable": True})
+                     "sentences": f["sentences"], "file": f["file"], "editable": False, "importable": True,
+                     "external_editable": True})
     for a in ext["automations"]:
         rows.append({"source": "external", "kind": "automation", "id": a.get("id"), "title": a.get("alias"),
-                     "sentences": a["sentences"], "editable": False, "importable": False})
+                     "sentences": a["sentences"], "editable": False, "importable": False,
+                     "external_editable": a.get("id") is not None})
     want = msg.get("source")
     return [r for r in rows if not want or r["source"] == want]
 
@@ -206,16 +208,23 @@ async def h_cmd_update(hass, entry, msg):
     return _scrub(await entry.runtime_data.commands.update(msg["item_id"], msg["fields"]))
 
 
-# Fields shown in the builder / raw YAML editor, in the order they appear in YAML.
-YAML_FIELDS = (
-    "name", "type", "sentences", "slots", "entities", "actions", "response_template", "unavailable_template",
-)
+# Fields shown in the builder / raw YAML editor, per kind of item, in the order they appear in YAML.
+YAML_FIELDS: dict[str, tuple[str, ...]] = {
+    "command": (
+        "name", "type", "sentences", "slots", "entities", "actions", "response_template", "unavailable_template",
+    ),
+    "learned": ("template",),
+    "automation": ("alias", "triggers"),
+    "file": ("data",),
+}
+_LISTS = {"sentences", "actions", "triggers", "data"}
+_MAPPINGS = {"slots", "entities"}
 
 
 async def h_cmd_to_yaml(hass, entry, msg):
     """Builder -> YAML. Stateless: converts the panel's unsaved draft, nothing is stored."""
     fields = msg["fields"]
-    return {"yaml": yaml_dump({k: fields[k] for k in YAML_FIELDS if k in fields})}
+    return {"yaml": yaml_dump({k: fields[k] for k in YAML_FIELDS[msg["kind"]] if k in fields})}
 
 
 async def h_cmd_from_yaml(hass, entry, msg):
@@ -224,17 +233,28 @@ async def h_cmd_from_yaml(hass, entry, msg):
         data = parse_yaml(msg["yaml"])
     except (HomeAssistantError, ValueError) as err:
         raise HomeAssistantError(f"Invalid YAML: {err}") from err
+    allowed = YAML_FIELDS[msg["kind"]]
     if not isinstance(data, dict):
-        raise HomeAssistantError("The YAML must be a mapping of fields (name, sentences, ...)")
-    if unknown := sorted(set(data) - set(YAML_FIELDS)):
-        raise HomeAssistantError(f"Unknown field(s): {', '.join(map(str, unknown))}")
-    for key in ("sentences", "actions"):
-        if key in data and not isinstance(data[key], list):
+        raise HomeAssistantError(f"The YAML must be a mapping of fields ({', '.join(allowed)})")
+    if unknown := sorted(set(map(str, data)) - set(allowed)):
+        raise HomeAssistantError(f"Unknown field(s): {', '.join(unknown)}")
+    for key, value in data.items():
+        if key in _LISTS and not isinstance(value, list):
             raise HomeAssistantError(f"'{key}' must be a list")
-    for key in ("slots", "entities"):
-        if key in data and not isinstance(data[key], dict):
+        if key in _MAPPINGS and not isinstance(value, dict):
             raise HomeAssistantError(f"'{key}' must be a mapping")
+        if key == "template" and not isinstance(value, str):
+            raise HomeAssistantError("'template' must be a string")
     return {"fields": data}
+
+
+async def h_external_get(hass, entry, msg):
+    return await external.async_get(hass, entry.data[CONF_LANGUAGE], msg["kind"], msg["item_id"])
+
+
+async def h_external_update(hass, entry, msg):
+    await external.async_update(hass, entry.data[CONF_LANGUAGE], msg["kind"], msg["item_id"], msg["fields"])
+    return await external.async_get(hass, entry.data[CONF_LANGUAGE], msg["kind"], msg["item_id"])
 
 
 async def h_cmd_decide(hass, entry, msg):
@@ -302,7 +322,8 @@ async def h_import_apply(hass, entry, msg):
 
 
 _STR = str
-_ID = {vol.Required("item_id"): _STR}  # `id` is reserved by the websocket protocol (message id)
+_ID = {vol.Required("item_id"): _STR}
+_KIND = {vol.Optional("kind", default="command"): vol.In(list(YAML_FIELDS))}  # `id` is reserved by the websocket protocol (message id)
 
 COMMANDS = [
     _cmd("overview", {}, h_overview),
@@ -325,8 +346,11 @@ COMMANDS = [
     _cmd("commands/create", {vol.Required("name"): _STR, vol.Required("description"): _STR,
                              vol.Required("entities"): {_STR: _STR}, vol.Optional("examples"): [_STR],
                              vol.Optional("cmd_type"): vol.In(["answer", "action", "answer_and_action"])}, h_cmd_create),
-    _cmd("commands/to_yaml", {vol.Required("fields"): dict}, h_cmd_to_yaml),
-    _cmd("commands/from_yaml", {vol.Required("yaml"): _STR}, h_cmd_from_yaml),
+    _cmd("yaml/dump", {vol.Required("fields"): dict, **_KIND}, h_cmd_to_yaml),
+    _cmd("yaml/parse", {vol.Required("yaml"): _STR, **_KIND}, h_cmd_from_yaml),
+    _cmd("external/get", {**_ID, vol.Required("kind"): vol.In(["automation", "file"])}, h_external_get),
+    _cmd("external/update", {**_ID, vol.Required("kind"): vol.In(["automation", "file"]),
+                             vol.Required("fields"): dict}, h_external_update),
     _cmd("commands/payload", {**_ID, vol.Optional("feedback"): _STR}, h_cmd_payload),
     _cmd("commands/generate", {**_ID, vol.Optional("feedback"): _STR}, h_cmd_generate),
     _cmd("commands/regenerate", {**_ID, vol.Required("feedback"): _STR}, h_cmd_generate),

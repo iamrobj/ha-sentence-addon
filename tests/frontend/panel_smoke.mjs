@@ -16,11 +16,13 @@ const data = {
     { source: "learned", id: "lt_1", title: "put on {track} from {artist}", sentences: ["put on {track} from {artist}"], enabled: true, hits: 4, last_used: null, editable: true },
     { source: "custom", id: "cmd_1", title: "Outside", status: "pending", type: "answer", sentences: ["a b", "c d"], editable: true, enabled: false },
     { source: "custom", id: "cmd_1", title: "Outside", status: "active", type: "answer", sentences: ["a b", "c d"], editable: true, enabled: true },
+    { source: "external", kind: "automation", id: "a1", title: "Bedtime", sentences: ["good night", "bed time"], editable: false, external_editable: true },
     { source: "external", kind: "file", id: "f#I", title: "I", sentences: ["x y"], file: "/c/x.yaml", editable: false },
   ],
   "commands/get": { id: "cmd_1", name: "Outside", type: "answer", status: "pending", description: "d", sentences: ["a b", "c d"], response_template: "It is {{ states('sensor.t') }}", slots: {}, entities: { t: "sensor.t" }, validation: { ok: true, preview: "It is 7", errors: [], warnings: [], flags: [], calls: [] }, notes: "n" },
-  "commands/to_yaml": { yaml: "name: Outside\nsentences:\n- a b\n" },
-  "commands/from_yaml": { fields: { name: "Edited" } },
+  "yaml/dump": { yaml: "name: Outside\nsentences:\n- a b\n" },
+  "yaml/parse": { fields: { name: "Edited" } },
+  "external/get": { alias: "Bedtime", triggers: [{ sentences: ["good night"] }, { sentences: ["bed time"] }] },
   "misses/list": [{ id: "m", timestamp: "2026-01-01T00:00:00Z", text: "hello", success: true, processed: false }],
   stats: { daily: [{ date: "2026-01-01", fallbacks: 2, local_hits: 1 }], learned: [{ id: "lt_1", template: "t", hits: 1 }], commands: [{ id: "c", name: "n", hits: 2 }] },
   "executions/list": [{ time: "2026-01-01T00:00:00Z", command: "n", calls: [{ service: "light.turn_on" }], ok: true }],
@@ -56,9 +58,28 @@ expect(text().includes("Sentences") && text().includes("+ Add sentence") && text
 expect(el.shadowRoot.querySelector('input[placeholder="label"]')?.value === "t", "entity row populated from command");
 await el._switchMode("ed_custom_cmd_1", el._editing["ed_custom_cmd_1"], "yaml"); await el.updateComplete;
 expect(el.shadowRoot.querySelector("textarea.yaml")?.value.includes("name: Outside"), "yaml shown");
-expect(params["commands/to_yaml"].fields.sentences.length === 2, "builder fields sent to yaml converter");
-await el._saveCmd({ id: "cmd_1" }, "ed_custom_cmd_1", el._editing["ed_custom_cmd_1"]); await el.updateComplete;
+expect(params["yaml/dump"].fields.sentences.length === 2, "builder fields sent to yaml converter");
+await el._saveItem({ id: "cmd_1" }, "ed_custom_cmd_1", el._editing["ed_custom_cmd_1"]); await el.updateComplete;
 expect(params["commands/update"].fields.name === "Edited", "yaml save sends parsed fields");
 expect(!el._editing["ed_custom_cmd_1"], "editor closed after save");
+expect(params["yaml/dump"].kind === "command", "yaml dump kind");
+// Home Assistant automation: builder edits trigger sentences, save goes to external/update
+expect(text().includes("home assistant") && text().includes("automation"), "HA badge + kind");
+el._open = { ...el._open, external_a1: true }; await el.updateComplete;
+expect(text().includes("Open automation in Home Assistant"), "automation link");
+const arow = { source: "external", kind: "automation", id: "a1", sentences: [] };
+await el._startEdit(arow, "ed_external_a1"); await tick(); await el.updateComplete;
+expect(text().includes("Sentence trigger 2"), "per-trigger sentence lists");
+const ed = el._editing["ed_external_a1"];
+el._setEd("ed_external_a1", { form: { ...ed.form, triggers: [{ sentences: ["good night", "night night"] }, ed.form.triggers[1]] } });
+await el._saveItem(arow, "ed_external_a1", el._editing["ed_external_a1"]);
+expect(params["external/update"].kind === "automation" && params["external/update"].fields.triggers[0].sentences[1] === "night night", "automation save payload");
+// learned template: builder shows slots, YAML round trip uses kind learned
+const lrow = { source: "learned", id: "lt_1", sentences: ["put on {track} from {artist}"] };
+el._open = { ...el._open, learned_lt_1: true };
+await el._startEdit(lrow, "ed_learned_lt_1"); await tick(); await el.updateComplete;
+expect(text().includes("{track}") && text().includes("{artist}"), "learned builder slots");
+await el._switchMode("ed_learned_lt_1", el._editing["ed_learned_lt_1"], "yaml");
+expect(params["yaml/dump"].kind === "learned" && params["yaml/dump"].fields.template === "put on {track} from {artist}", "learned yaml dump");
 console.log("SMOKE_OK", calls.length, "ws calls");
 process.exit(0);

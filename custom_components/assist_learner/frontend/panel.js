@@ -50,6 +50,39 @@ const fromForm = (d) => ({
   unavailable_template: d.unavailable_template,
 });
 
+const trimList = (xs) => xs.map((x) => String(x).trim()).filter(Boolean);
+const slotNames = (t) => [...new Set([...String(t).matchAll(/\{(\w+)\}/g)].map((m) => m[1]))];
+const LABEL = { learned: "learned", custom: "custom", external: "home assistant" };
+// Each editable kind: how stored fields map to the builder form, and how a save is sent.
+const KINDS = {
+  command: {
+    toForm, fromForm, saved: "Saved (re-validated)",
+    hint: "name, type, sentences, slots, entities, actions, response_template, unavailable_template. Saving re-validates everything.",
+    save: (ws, r, fields) => ws("commands/update", { item_id: r.id, fields }),
+  },
+  learned: {
+    toForm: (f) => ({ template: f.template || "" }),
+    fromForm: (d) => ({ template: d.template.trim() }),
+    saved: "Saved", hint: "template. Slots like {track} are filled from what you say.",
+    save: (ws, r, fields) => ws("learned/update", { item_id: r.id, template: fields.template }),
+  },
+  automation: {
+    toForm: (f) => ({ alias: f.alias || "", triggers: (f.triggers || []).map((t) => ({ sentences: [...(t.sentences || [])] })) }),
+    fromForm: (d) => ({ alias: d.alias, triggers: d.triggers.map((t) => ({ sentences: trimList(t.sentences) })) }),
+    saved: "Saved to automations.yaml and reloaded automations",
+    hint: "alias, triggers (one entry per sentence trigger, each with sentences). Conditions and actions stay as they are; edit those in Home Assistant.",
+    save: (ws, r, fields) => ws("external/update", { kind: "automation", item_id: r.id, fields }),
+  },
+  file: {
+    toForm: (f) => ({ data: (f.data || []).map((b) => ({ ...b, sentences: [...(b.sentences || [])] })) }),
+    fromForm: (d) => ({ data: d.data.map((b) => ({ ...b, sentences: trimList(b.sentences) })) }),
+    saved: "Saved to the sentence file and reloaded Assist",
+    hint: "data (the intent's blocks: sentences plus any slots / requires_context / excludes_context).",
+    save: (ws, r, fields) => ws("external/update", { kind: "file", item_id: r.id, fields }),
+  },
+};
+const kindOf = (r) => (r.source === "custom" ? "command" : r.source === "learned" ? "learned" : r.kind);
+
 /** Entity picker: HA's own when available, otherwise a searchable input with a datalist. */
 class AlEntityPicker extends LitElement {
   static properties = { hass: {}, value: { type: String } };
@@ -311,7 +344,7 @@ class AssistLearnerPanel extends LitElement {
   _renderSentences() {
     const rows = this._sentences.filter((s) => !(s.source === "custom" && s.status === "pending") && (!this._filter || s.source === this._filter));
     return html`
-      <div class="row">${["", "learned", "custom", "external"].map((f) => html`<button class=${this._filter === f ? "chip on" : "chip"} @click=${() => (this._filter = f)}>${f || "all"}</button>`)}
+      <div class="row">${["", "learned", "custom", "external"].map((f) => html`<button class=${this._filter === f ? "chip on" : "chip"} @click=${() => (this._filter = f)}>${LABEL[f] || "all"}</button>`)}
         <button class="sec" @click=${() => this._run(async () => (this._imports = await this._ws("import/preview")))}>Preview import of external files</button></div>
       ${this._imports ? this._renderImports() : nothing}
       ${rows.length === 0 ? html`<p class="muted">No sentences yet.</p>` : nothing}
@@ -333,49 +366,54 @@ class AssistLearnerPanel extends LitElement {
   _renderSentenceRow(r) {
     const key = `${r.source}_${r.id}`;
     const open = this._open[key];
+    const k = `ed_${r.source}_${r.id}`;
     return html`<div class="card ${r.enabled === false ? "off" : ""}">
       <div class="title" @click=${() => (this._open = { ...this._open, [key]: !open })}>
-        <span class="badge">${r.source}</span> <b>${r.title}</b>
+        <span class="badge">${LABEL[r.source] || r.source}</span>${r.kind ? html` <span class="badge">${r.kind === "file" ? "sentence file" : r.kind}</span>` : nothing}
+        <b>${r.title}</b>
         ${r.status ? html`<span class="badge">${r.status}</span>` : nothing}
         <span class="muted">${r.hits != null ? `${r.hits} hits - last ${fmt(r.last_used)}` : ""}</span>
       </div>
       ${(r.collisions || []).length ? html`<div class="warn">⚠ collides with ${r.collisions.map((c) => c.matches).join(", ")}</div>` : nothing}
       ${open ? html`
-        <ul>${r.sentences.map((s) => html`<li><code>${s}</code></li>`)}</ul>
-        ${r.response ? html`<pre>${r.response}</pre>` : nothing}
-        ${r.file ? html`<div class="muted">${r.file} (read-only; remove it there to avoid duplicates)</div>` : nothing}
-        ${r.editable ? this._renderEditor(r) : nothing}` : nothing}
+        ${this._editing[k] ? nothing : html`<ul>${r.sentences.map((s) => html`<li><code>${s}</code></li>`)}</ul>
+          ${r.response ? html`<pre>${r.response}</pre>` : nothing}`}
+        ${r.file ? html`<div class="muted">${r.file}</div>` : nothing}
+        ${r.editable ? this._renderManagedButtons(r, k) : nothing}
+        ${r.source === "external" ? this._renderExternalButtons(r, k) : nothing}
+        ${this._editing[k] ? this._renderItemEditor(r, k, this._editing[k]) : nothing}
+        ${this._open[`hist_${r.source}_${r.id}`] ? html`<h4>History</h4>${this._open[`hist_${r.source}_${r.id}`].map((h, i) => html`<div class="muted">${fmt(h.at)} ${h.reason || ""} <button class="chip" @click=${() => this._run(() => this._ws(r.source === "learned" ? "learned/revert" : "commands/revert", { item_id: r.id, index: i }), "Reverted")}>Revert to this</button></div>`)}` : nothing}` : nothing}
     </div>`;
   }
 
-  _renderEditor(r) {
-    const k = `ed_${r.source}_${r.id}`;
-    const ed = this._editing[k];
+  _renderManagedButtons(r, k) {
     const toggle = r.source === "learned"
       ? (en) => this._ws("learned/update", { item_id: r.id, enabled: en })
       : (en) => this._ws("commands/decide", { item_id: r.id, decision: en ? "enable" : "disable" });
-    return html`
-      <div class="row">
-        <button class="sec" @click=${() => this._run(() => toggle(!r.enabled))}>${r.enabled ? "Disable" : "Enable"}</button>
-        <button class="sec" @click=${() => this._startEdit(r, k)}>Edit</button>
-        <button class="sec" @click=${() => this._history(r)}>History</button>
-        <button class="sec" @click=${() => this._run(() => this._ws(r.source === "learned" ? "learned/delete" : "commands/delete", { item_id: r.id }), "Deleted")}>Delete</button>
-        ${r.source === "custom" && r.type !== "answer" ? html`<button class="sec" @click=${() => this._runOnce(r)}>Run once</button>` : nothing}
-      </div>
-      ${ed !== undefined ? (typeof ed === "string"
-        ? html`<input .value=${ed} @input=${(e) => (this._editing = { ...this._editing, [k]: e.target.value })} /><button @click=${() => this._run(async () => { await this._ws("learned/update", { item_id: r.id, template: ed }); delete this._editing[k]; }, "Saved")}>Save</button>`
-        : this._renderCmdEditor(r, k, ed)) : nothing}
-      ${this._open[`hist_${r.source}_${r.id}`] ? html`<h4>History</h4>${this._open[`hist_${r.source}_${r.id}`].map((h, i) => html`<div class="muted">${fmt(h.at)} ${h.reason || ""} <button class="chip" @click=${() => this._run(() => this._ws(r.source === "learned" ? "learned/revert" : "commands/revert", { item_id: r.id, index: i }), "Reverted")}>Revert to this</button></div>`)}` : nothing}`;
+    return html`<div class="row">
+      <button class="sec" @click=${() => this._run(() => toggle(!r.enabled))}>${r.enabled ? "Disable" : "Enable"}</button>
+      <button class="sec" @click=${() => this._startEdit(r, k)}>Edit</button>
+      <button class="sec" @click=${() => this._history(r)}>History</button>
+      <button class="sec" @click=${() => this._run(() => this._ws(r.source === "learned" ? "learned/delete" : "commands/delete", { item_id: r.id }), "Deleted")}>Delete</button>
+      ${r.source === "custom" && r.type !== "answer" ? html`<button class="sec" @click=${() => this._runOnce(r)}>Run once</button>` : nothing}
+    </div>`;
+  }
+
+  _renderExternalButtons(r, k) {
+    return html`<div class="row">
+      ${r.external_editable ? html`<button class="sec" @click=${() => this._startEdit(r, k)}>Edit</button>`
+        : html`<span class="muted">Not editable here${r.kind === "automation" ? " (automation has no id; edit it in Home Assistant)" : ""}</span>`}
+      ${r.kind === "automation" && r.id ? html`<a class="sec" href="/config/automation/edit/${r.id}">Open automation in Home Assistant</a>` : nothing}
+    </div>`;
   }
 
   async _startEdit(r, k) {
-    if (r.source === "learned") {
-      this._editing = { ...this._editing, [k]: r.sentences[0] };
-      return;
-    }
+    const kind = kindOf(r);
     await this._run(async () => {
-      const full = await this._ws("commands/get", { item_id: r.id });
-      this._editing = { ...this._editing, [k]: { mode: "builder", form: toForm(full), yaml: "" } };
+      const stored = kind === "learned" ? { template: r.sentences[0] }
+        : kind === "command" ? await this._ws("commands/get", { item_id: r.id })
+        : await this._ws("external/get", { kind, item_id: r.id });
+      this._editing = { ...this._editing, [k]: { kind, mode: "builder", form: KINDS[kind].toForm(stored), yaml: "" } };
     });
   }
 
@@ -383,51 +421,99 @@ class AssistLearnerPanel extends LitElement {
     this._editing = { ...this._editing, [k]: { ...this._editing[k], ...patch } };
   }
 
+  _closeEd(k) {
+    const { [k]: _gone, ...rest } = this._editing;
+    this._editing = rest;
+  }
+
   async _switchMode(k, ed, mode) {
     if (mode === ed.mode) return;
+    const K = KINDS[ed.kind];
     try {
       if (mode === "yaml") {
-        const { yaml } = await this._ws("commands/to_yaml", { fields: fromForm(ed.form) });
+        const { yaml } = await this._ws("yaml/dump", { kind: ed.kind, fields: K.fromForm(ed.form) });
         this._setEd(k, { mode, yaml });
       } else {
-        const { fields } = await this._ws("commands/from_yaml", { yaml: ed.yaml });
-        this._setEd(k, { mode, form: toForm({ ...fromForm(ed.form), ...fields }) });
+        const { fields } = await this._ws("yaml/parse", { kind: ed.kind, yaml: ed.yaml });
+        this._setEd(k, { mode, form: K.toForm({ ...K.fromForm(ed.form), ...fields }) });
       }
     } catch (_) {
       /* error shown; stay in the current mode so nothing is lost */
     }
   }
 
-  async _saveCmd(r, k, ed) {
+  async _saveItem(r, k, ed) {
+    const K = KINDS[ed.kind];
+    let ok = false;
     await this._run(async () => {
-      const fields = ed.mode === "yaml" ? (await this._ws("commands/from_yaml", { yaml: ed.yaml })).fields : fromForm(ed.form);
-      await this._ws("commands/update", { item_id: r.id, fields });
-      const { [k]: _gone, ...rest } = this._editing;
-      this._editing = rest;
-    }, "Saved (re-validated)");
+      const fields = ed.mode === "yaml" ? (await this._ws("yaml/parse", { kind: ed.kind, yaml: ed.yaml })).fields : K.fromForm(ed.form);
+      await K.save((t, p) => this._ws(t, p), r, fields);
+      ok = true;
+    }, K.saved);
+    if (ok) this._closeEd(k);
   }
 
-  _renderCmdEditor(r, k, ed) {
+  /** Editable list of sentence templates (shared by every kind). */
+  _sentenceList(list, onChange) {
+    return html`${list.map((x, i) => html`<div class="row"><input .value=${x} @input=${(e) => onChange(list.map((y, j) => (j === i ? e.target.value : y)))} />
+        <button class="chip" @click=${() => onChange(list.filter((_, j) => j !== i))}>✕</button></div>`)}
+      <button class="sec" @click=${() => onChange([...list, ""])}>+ Add sentence</button>`;
+  }
+
+  _renderItemEditor(r, k, ed) {
+    const modeBtn = (m, label) => html`<button class=${ed.mode === m ? "chip on" : "chip"} @click=${() => this._switchMode(k, ed, m)}>${label}</button>`;
+    const body = { command: () => this._builderCommand(k, ed), learned: () => this._builderLearned(k, ed), automation: () => this._builderAutomation(r, k, ed), file: () => this._builderFile(k, ed) }[ed.kind];
+    return html`<div class="builder">
+      <div class="row">${modeBtn("builder", "Builder")}${modeBtn("yaml", "YAML")}</div>
+      ${ed.mode === "yaml"
+        ? html`<textarea class="yaml" rows="18" spellcheck="false" .value=${ed.yaml} @input=${(e) => this._setEd(k, { yaml: e.target.value })}></textarea>
+               <div class="muted">Fields: ${KINDS[ed.kind].hint}</div>`
+        : body()}
+      <div class="row"><button @click=${() => this._saveItem(r, k, ed)}>Save</button>
+        <button class="sec" @click=${() => this._closeEd(k)}>Cancel</button></div>
+    </div>`;
+  }
+
+  _builderLearned(k, ed) {
+    const f = ed.form;
+    const slots = slotNames(f.template);
+    return html`<label>Template<input .value=${f.template} @input=${(e) => this._setEd(k, { form: { template: e.target.value } })} /></label>
+      <div class="muted">(optional words), [a|b] alternatives. Slots filled from what you say: ${slots.length ? slots.map((x) => html`<code>{${x}}</code> `) : "none"}</div>`;
+  }
+
+  _builderAutomation(r, k, ed) {
+    const f = ed.form;
+    const upd = (patch) => this._setEd(k, { form: { ...f, ...patch } });
+    return html`<label>Alias<input .value=${f.alias} @input=${(e) => upd({ alias: e.target.value })} /></label>
+      ${f.triggers.map((t, i) => html`<h4>${f.triggers.length > 1 ? `Sentence trigger ${i + 1}` : "Sentences"}</h4>
+        ${this._sentenceList(t.sentences, (list) => upd({ triggers: f.triggers.map((x, j) => (j === i ? { ...x, sentences: list } : x)) }))}`)}
+      <div class="muted">Only the alias and sentences are changed. Conditions and actions stay as they are; edit those in Home Assistant.</div>`;
+  }
+
+  _builderFile(k, ed) {
+    const f = ed.form;
+    const upd = (data) => this._setEd(k, { form: { data } });
+    return html`${f.data.map((b, i) => {
+      const extra = Object.keys(b).filter((x) => x !== "sentences");
+      return html`<h4>${f.data.length > 1 ? `Block ${i + 1}` : "Sentences"}</h4>
+        ${this._sentenceList(b.sentences, (list) => upd(f.data.map((x, j) => (j === i ? { ...x, sentences: list } : x))))}
+        ${extra.length ? html`<div class="muted">Also has ${extra.join(", ")} (kept as is; edit in YAML)</div>` : nothing}`;
+    })}`;
+  }
+
+  _builderCommand(k, ed) {
     const f = ed.form;
     const upd = (patch) => this._setEd(k, { form: { ...f, ...patch } });
     const at = (key, i, patch) => upd({ [key]: f[key].map((x, j) => (j === i ? { ...x, ...patch } : x)) });
     const del = (key, i) => upd({ [key]: f[key].filter((_, j) => j !== i) });
     const roles = f.entities.map((e) => e.role).filter(Boolean);
-    const modeBtn = (m, label) => html`<button class=${ed.mode === m ? "chip on" : "chip"} @click=${() => this._switchMode(k, ed, m)}>${label}</button>`;
-    return html`<div class="builder">
-      <div class="row">${modeBtn("builder", "Builder")}${modeBtn("yaml", "YAML")}</div>
-      ${ed.mode === "yaml"
-        ? html`<textarea class="yaml" rows="22" spellcheck="false" .value=${ed.yaml} @input=${(e) => this._setEd(k, { yaml: e.target.value })}></textarea>
-               <div class="muted">Fields: name, type, sentences, slots, entities, actions, response_template, unavailable_template. Saving re-validates everything.</div>`
-        : html`
+    return html`
           <label>Name<input .value=${f.name} @input=${(e) => upd({ name: e.target.value })} /></label>
           <label>Type<select .value=${f.type} @change=${(e) => upd({ type: e.target.value })}>
             ${[["answer", "Answer"], ["action", "Action"], ["answer_and_action", "Answer and action"]].map(([v, l]) => html`<option value=${v} ?selected=${f.type === v}>${l}</option>`)}</select></label>
 
           <h4>Sentences <span class="muted">(use {slot} for a value; (optional words) and [a|b] alternatives work)</span></h4>
-          ${f.sentences.map((x, i) => html`<div class="row"><input .value=${x} @input=${(e) => upd({ sentences: f.sentences.map((y, j) => (j === i ? e.target.value : y)) })} />
-            <button class="chip" @click=${() => del("sentences", i)}>✕</button></div>`)}
-          <button class="sec" @click=${() => upd({ sentences: [...f.sentences, ""] })}>+ Add sentence</button>
+          ${this._sentenceList(f.sentences, (list) => upd({ sentences: list }))}
 
           <h4>Slots <span class="muted">(values the speaker can say)</span></h4>
           ${f.slots.map((x, i) => html`<div class="row slot">
@@ -461,10 +547,7 @@ class AssistLearnerPanel extends LitElement {
           <button class="sec" @click=${() => upd({ actions: [...f.actions, { service: "", targets: [], data: [] }] })}>+ Add action</button>
 
           <label>Spoken response (Jinja template)<textarea rows="3" .value=${f.response_template} @input=${(e) => upd({ response_template: e.target.value })}></textarea></label>
-          <label>If an entity is unavailable (optional)<textarea rows="2" .value=${f.unavailable_template} @input=${(e) => upd({ unavailable_template: e.target.value })}></textarea></label>`}
-      <div class="row"><button @click=${() => this._saveCmd(r, k, ed)}>Save</button>
-        <button class="sec" @click=${() => { const { [k]: _gone, ...rest } = this._editing; this._editing = rest; }}>Cancel</button></div>
-    </div>`;
+          <label>If an entity is unavailable (optional)<textarea rows="2" .value=${f.unavailable_template} @input=${(e) => upd({ unavailable_template: e.target.value })}></textarea></label>`;
   }
 
   async _history(r) {

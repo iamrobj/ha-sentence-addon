@@ -131,9 +131,9 @@ async def test_yaml_roundtrip_and_edit(hass, hass_ws_client):
     fields = {k: GOOD_ACTION[k] for k in ("type", "sentences", "slots", "actions", "response_template")}
     fields |= {"name": "Lounge level", "entities": {"lounge": "light.lounge"}}
 
-    dumped = (await call(client, "commands/to_yaml", fields=fields))["result"]["yaml"]
+    dumped = (await call(client, "yaml/dump", fields=fields))["result"]["yaml"]
     assert "sentences:" in dumped and dumped.index("name:") < dumped.index("sentences:")
-    back = (await call(client, "commands/from_yaml", yaml=dumped))["result"]["fields"]
+    back = (await call(client, "yaml/parse", yaml=dumped))["result"]["fields"]
     assert back == fields
 
 
@@ -150,5 +150,5 @@ async def test_yaml_roundtrip_and_edit(hass, hass_ws_client):
 async def test_from_yaml_rejects_bad_input(hass, hass_ws_client, text, msg):
     await _setup(hass)
     client = await hass_ws_client(hass)
-    resp = await call(client, "commands/from_yaml", yaml=text)
+    resp = await call(client, "yaml/parse", yaml=text)
     assert resp["success"] is False and msg in resp["error"]["message"]

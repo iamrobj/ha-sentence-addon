@@ -1,6 +1,6 @@
 """Discover external sentence files / sentence-trigger automations and import simple ones.
 
-Import never edits or deletes the original files. Anything that can't be mapped cleanly stays external with a
+Import never edits or deletes the original files (in-place editing is a separate, explicit action: `external.py`). Anything that can't be mapped cleanly stays external with a
 reason. Imported commands are created as *pending* and go through exactly the same validation as authored ones.
 """
 
@@ -84,23 +84,26 @@ def _read_intent_scripts(hass: HomeAssistant) -> dict[str, Any]:
 
 
 def _sentence_trigger_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """One row per automation that has at least one conversation (sentence) trigger."""
     doc = _load(Path(hass.config.path("automations.yaml")))
     found: list[dict[str, Any]] = []
     for auto in doc if isinstance(doc, list) else []:
+        if not isinstance(auto, dict):
+            continue
         triggers = auto.get("triggers") or auto.get("trigger") or []
         if isinstance(triggers, dict):
             triggers = [triggers]
+        sentences: list[str] = []
+        conv = 0
         for t in triggers:
-            if (t.get("trigger") or t.get("platform")) == "conversation":
+            if isinstance(t, dict) and (t.get("trigger") or t.get("platform")) == "conversation":
+                conv += 1
                 cmds = t.get("command") or []
-                found.append(
-                    {
-                        "kind": "automation",
-                        "id": auto.get("id"),
-                        "alias": auto.get("alias"),
-                        "sentences": [cmds] if isinstance(cmds, str) else list(cmds),
-                    }
-                )
+                sentences += [str(cmds)] if isinstance(cmds, str) else [str(c) for c in cmds]
+        if conv:
+            found.append(
+                {"kind": "automation", "id": auto.get("id"), "alias": auto.get("alias"), "sentences": sentences}
+            )
     return found
 
 

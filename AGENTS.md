@@ -33,5 +33,5 @@ See plan §4. Tests in `tests/`. Spike notes in `docs/spike-notes.md`.
 ## Module map (differs slightly from plan §4)
 `handlers.py` (runtime intent handlers; NOT `intent.py`, see LEARNINGS), `learned.py` (approve/reject/edit),
 `players.py`, `sentences.py` (YAML writer), `recognizer.py` (the only touchpoint for the default-agent recognizer),
-`websocket.py` + `panel.py` + `frontend/`, `commands/` (model, generate, validate, template_guard, actions,
+`external.py` (in-place edits of HA-owned sentences: automations.yaml, custom_sentences files), `websocket.py` + `panel.py` + `frontend/`, `commands/` (model, generate, validate, template_guard, actions,
 importer, manager), `proposer/` (music learner, alignment, templating, validate, generalise), `replay.py`.

@@ -84,6 +84,15 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   (HA's own yaml util). A YAML parse/shape error keeps you in the current mode so edits aren't lost. Save always goes through
   `commands/update` (full re-validation). Learned templates keep the single-line editor (a template string has no structure
   worth a builder). Action data values in the builder are JSON-parsed when possible ("5" becomes 5; `{level}` stays a string).
+- 2026-11-13 — The builder/YAML editor covers every kind (KINDS table in panel.js): custom commands, learned templates
+  (template only), and Home Assistant-owned sentences. YAML conversion is `yaml/dump` / `yaml/parse` with a `kind`.
+- 2026-11-13 — **User decision: HA-owned sentences are edited in place** (deviates from plan's "never edit your files";
+  plan updated). `external.py`: automations in `automations.yaml` (by `id`; only alias + conversation-trigger `command`
+  lists change, trigger count is fixed, conditions/actions untouched) then `automation.reload`; intents in
+  `custom_sentences/<lang>/*.yaml` (path confined to that dir, never our own file; whole `data` list replaced, other
+  keys kept) then `conversation.reload`. Every sentence is hassil-parsed first. Round-trip uses HA's yaml loader/dumper
+  like HA's own automation editor, so comments in those files are lost on save. Automations without an `id` (or in
+  packages / other files) are read-only. UI label for `source: external` is "home assistant".
 - Builder/YAML editor has only had the jsdom smoke test, not a real browser.
 
 ## Hardening
