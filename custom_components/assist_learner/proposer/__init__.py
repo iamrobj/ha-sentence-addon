@@ -26,6 +26,7 @@ from ..const import (
     STATUS_PENDING,
 )
 from ..models import MissRecord, Proposal
+from ..options import get_options
 from .base import Candidate, Learner
 from .music import FAMILY as MUSIC_FAMILY
 from .music import MusicLearner
@@ -87,8 +88,6 @@ def build_learners(hass: HomeAssistant, enabled: list[str]) -> list[Learner]:
 
 async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Proposal]:
     """Process unprocessed misses into proposals. Returns newly created proposals."""
-    from .. import get_options  # local import: avoids a cycle at package import
-
     store = entry.runtime_data.store
     opts = get_options(entry)
     language = entry.data.get(CONF_LANGUAGE, hass.config.language)

@@ -49,3 +49,6 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   `result is not None and not result.unmatched_entities` (same test HA uses). Encoded in `recognizer.py`.
 - 2026-11-13 — hassil: use `parse_sentence` + `sample_sentence(skip_optionals=True)` to expand templates; fill
   `{slot}` placeholders with plain text BEFORE parsing.
+- 2026-11-13 — **Do not name a module `intent.py`** (or `conversation.py` is fine because we ARE a conversation
+  platform, `sensor.py`, `button.py` likewise): HA treats `<integration>/intent.py` as the `intent` platform and
+  calls `async_setup_intents`. Our runtime handlers live in `handlers.py` (plan §4 said `intent.py`).

@@ -11,7 +11,9 @@ from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_RUN_TIME, DEFAULT_OPTIONS, DOMAIN
+from .const import CONF_RUN_TIME, DOMAIN
+from .handlers import async_register_intents, async_unregister_intents
+from .options import get_options
 from .store import AssistLearnerStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,17 +39,13 @@ class RuntimeData:
             cb()
 
 
-def get_options(entry: ConfigEntry) -> dict:
-    """Entry options merged over defaults."""
-    return {**DEFAULT_OPTIONS, **entry.options}
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry) -> bool:
     store = AssistLearnerStore(hass)
     await store.async_load()
     entry.runtime_data = RuntimeData(store=store)
     _schedule_nightly(hass, entry)
     _register_services(hass)
+    async_register_intents(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -56,6 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
 async def async_unload_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        async_unregister_intents(hass)
         await entry.runtime_data.store.async_save_all()
     return unloaded
 

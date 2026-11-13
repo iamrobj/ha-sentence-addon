@@ -135,7 +135,7 @@ class Learner(Protocol):
 
 **Optional LLM generalisation (off by default):** if an AI Task entity is selected in options, ask it via `ai_task.generate_data` with a structured output schema to suggest alternations for a proposal. Its output goes through the same safety checks and is never applied without approval. The cost is negligible on Haiku.
 
-### 3.4 Local runtime: sentences and handler (`sentences.py`, `intent.py`)
+### 3.4 Local runtime: sentences and handler (`sentences.py`, `handlers.py`)
 
 Approved templates go into a file the integration owns: **`/config/custom_sentences/<lang>/assist_learner.yaml`**. The file is fully regenerated from `assist_learner.learned` on each change, and starts with a "do not edit" header. Blueprint files are never touched.
 
@@ -333,7 +333,7 @@ intents:
           command_id: "cmd_7f3a"
 ```
 
-- The handler (`intent.py`) looks up the command, re-checks that it's enabled and its hash matches, renders the response template through Home Assistant's template helper, and returns it as the spoken reply. It increments the hit counter. For action commands it first validates slot values against their bounds, then makes each service call in order with `blocking=True` and the request's own context (so the logbook attributes the change to the voice request), stops on the first failure and says so, and enforces the per-command rate limit. The spoken reply is rendered only after the calls succeed. Every run is written to the execution log.
+- The handler (`handlers.py`) looks up the command, re-checks that it's enabled and its hash matches, renders the response template through Home Assistant's template helper, and returns it as the spoken reply. It increments the hit counter. For action commands it first validates slot values against their bounds, then makes each service call in order with `blocking=True` and the request's own context (so the logbook attributes the change to the voice request), stops on the first failure and says so, and enforces the per-command rate limit. The spoken reply is rendered only after the calls succeed. Every run is written to the execution log.
 - The command's entities are **not** required to be exposed to Assist. Selecting them in the panel is the explicit grant, shown on the approval screen. (Answer commands can only read. Action commands can only target the entities in their list.)
 
 #### 3.7.6 Sentences tab: see and edit everything
