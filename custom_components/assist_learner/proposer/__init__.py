@@ -173,7 +173,7 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
     for cand, group, total, replaces in ready:
         samples = cand.slots.get("samples", {})
         check = await async_check_template(
-            hass, cand.template, samples, language, opts[CONF_CARRIER_VERBS]
+            hass, cand.template, samples, language, opts[CONF_CARRIER_VERBS], allow_learned=replaces is not None
         )
         if not check.ok:
             _LOGGER.debug("Dropped template (%s)", check.drop_reason or check.block_reason)

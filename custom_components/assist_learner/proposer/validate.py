@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 
 from .. import recognizer
+from ..sentences import MUSIC_INTENT
 from .templating import has_verb_anchor, sample_text, wildcards_separated
 
 PROBES: list[dict[str, str]] = [
@@ -30,6 +31,8 @@ async def async_check_template(
     samples: dict[str, str],
     language: str,
     verbs: list[str],
+    *,
+    allow_learned: bool = False,
 ) -> CheckResult:
     res = CheckResult()
 
@@ -42,14 +45,18 @@ async def async_check_template(
 
     # Already local? (built-ins, blueprint, earlier learned templates)
     text = sample_text(template, samples)
-    if (m := await recognizer.async_match(hass, text, language)) is not None:
+    if (m := await recognizer.async_match(hass, text, language)) is not None and not (
+        allow_learned and m.intent_name == MUSIC_INTENT
+    ):
         res.drop_reason = f"already handled locally by {m.intent_name}"
         return res
 
     # Too greedy? Probe with non-music values; if it already matches something else, it would steal it.
     for probe in PROBES:
         probe_text = sample_text(template, probe)
-        if (m := await recognizer.async_match(hass, probe_text, language)) is not None:
+        if (m := await recognizer.async_match(hass, probe_text, language)) is not None and not (
+            allow_learned and m.intent_name == MUSIC_INTENT
+        ):
             res.block_reason = f"too greedy: '{probe_text}' already matches {m.intent_name}"
             return res
 

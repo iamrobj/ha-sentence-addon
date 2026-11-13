@@ -31,8 +31,8 @@ def sample_text(template: str, values: dict[str, str]) -> str:
     filled = _SLOT_RE.sub(lambda m: values.get(m.group(1), m.group(1)), template)
     sentence = parse_sentence(filled)
     for text in sample_sentence(sentence, skip_optionals=True):
-        return text
-    return filled
+        return " ".join(text.split())
+    return " ".join(filled.split())
 
 
 def literal_words(template: str) -> list[str]:
