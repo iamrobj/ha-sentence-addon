@@ -66,6 +66,7 @@ class Proposal(_Serializable):
     fingerprint: str = ""
     replaces: str | None = None  # learned template id for updates
     diff: str | None = None
+    suggestion: str | None = None  # optional LLM generalisation; never applied without approval
     created: str = ""
     decided: str | None = None
     note: str | None = None

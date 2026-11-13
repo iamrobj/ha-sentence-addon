@@ -27,6 +27,7 @@ CONF_CARRIER_VERBS = "carrier_verbs"
 CONF_DEFAULT_PLAYER = "default_player"
 CONF_AREA_PLAYERS = "preferred_player_per_area"
 CONF_PREFER_OWN_PLAYER = "prefer_calling_device_player"
+CONF_LLM_GENERALISE = "llm_generalise"
 
 DEFAULT_OPTIONS: dict = {
     CONF_RUN_TIME: "03:15:00",
@@ -47,6 +48,7 @@ DEFAULT_OPTIONS: dict = {
     CONF_DEFAULT_PLAYER: None,
     CONF_AREA_PLAYERS: {},
     CONF_PREFER_OWN_PLAYER: True,
+    CONF_LLM_GENERALISE: False,
 }
 
 NOTIFY_NONE = "none"

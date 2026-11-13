@@ -44,6 +44,8 @@ def describe(p: dict[str, Any]) -> str:
         lines.append(f"Change:\n{p['diff']}")
     if p.get("examples"):
         lines.append("Examples: " + "; ".join(p["examples"]))
+    if p.get("suggestion"):
+        lines.append(f"LLM suggestion (not applied unless you edit it in): {p['suggestion']}")
     if p.get("warnings"):
         lines.append("Warnings: " + "; ".join(p["warnings"]))
     return "\n".join(lines)

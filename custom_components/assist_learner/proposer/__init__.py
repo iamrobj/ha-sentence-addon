@@ -30,6 +30,7 @@ from ..const import (
 from ..models import MissRecord, Proposal
 from ..options import get_options
 from .base import Candidate, Learner
+from .generalise import async_suggest
 from .music import FAMILY as MUSIC_FAMILY
 from .music import MusicLearner
 from .validate import async_check_template
@@ -211,6 +212,7 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
             created=now.isoformat(),
         )
         proposal.slots = {k: v for k, v in proposal.slots.items() if k != "samples"}
+        proposal.suggestion = await async_suggest(hass, entry, cand.template, samples)
         store.proposals.put(proposal.id, proposal.as_dict())
         _finish(store, group, proposal.id)
         created.append(proposal)

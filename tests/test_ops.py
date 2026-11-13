@@ -89,3 +89,41 @@ async def test_learned_misc_paths(hass):
     with pytest.raises(learned.ProposalError):
         await learned.async_approve(hass, entry, "nope")
     learned.record_hit(entry, "nope")  # unknown id is a no-op
+
+
+async def test_scriptable_command_services_and_bulk_and_suggestion(hass, hass_ws_client):
+    from tests.test_commands import GOOD_ANSWER
+
+    entry, mgr, ai = await _setup(hass, llm_generalise=True)
+    ai.results += [GOOD_ANSWER]
+    r = await hass.services.async_call(
+        DOMAIN, "create_command",
+        {"name": "Outside", "description": "answer outside temp", "entities": {"t": "sensor.outdoor_temperature"}},
+        blocking=True, return_response=True,
+    )
+    cid = r["id"]
+    g = await hass.services.async_call(DOMAIN, "generate_command", {"command_id": cid}, blocking=True, return_response=True)
+    assert g["validation"]["ok"]
+    d = await hass.services.async_call(DOMAIN, "decide_command", {"command_id": cid, "decision": "approve"}, blocking=True, return_response=True)
+    assert d["status"] == "active"
+
+    # LLM generalisation is only a suggestion and must pass all checks
+    ai.results += [{"template": "(put on|play) {track} from {artist}"}]
+    store = entry.runtime_data.store
+    store.misses.put("m0", _miss(0, "put on Lose Control from Teddy Swims").as_dict())
+    p = (await async_run_proposer(hass, entry))[0]
+    assert p.suggestion == "(put on|play) {track} from {artist}" and p.template == "put on {track} from {artist}"
+    assert not store.learned.values()  # never applied without approval
+
+    client = await hass_ws_client(hass)
+    store.misses.put("m1", _miss(1, "stick on Lose Control by Teddy Swims").as_dict())
+    ai.results += [{"template": "not a valid {thing}"}]
+    await async_run_proposer(hass, entry)
+    pending = [x["id"] for x in store.proposals.values() if x["status"] == "pending"]
+    assert len(pending) == 2
+    assert next(x for x in store.proposals.values() if x["template"].startswith("stick"))["suggestion"] is None
+    await client.send_json_auto_id({"type": "assist_learner/proposals/bulk", "proposal_ids": pending + ["bogus"], "decision": "approve"})
+    res = (await client.receive_json())["result"]
+    assert len(res["done"]) == 2 and res["failed"][0]["id"] == "bogus"
+    await client.send_json_auto_id({"type": "assist_learner/misses/export"})
+    assert isinstance((await client.receive_json())["result"], list)

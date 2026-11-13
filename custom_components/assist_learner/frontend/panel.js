@@ -190,7 +190,9 @@ class AssistLearnerPanel extends LitElement {
     return html`
       <div class="row"><button @click=${() => this._run(async () => { const r = await this._ws("run_proposer"); this._info = `${r.created} new proposal(s)`; })}>Run proposer now</button></div>
       <h2>Learned from LLM fallbacks</h2>
-      ${this._proposals.length === 0 ? html`<p class="muted">Nothing to review.</p>` : nothing}
+      ${this._proposals.length === 0 ? html`<p class="muted">Nothing to review.</p>` : html`<div class="row">
+        <button class="sec" @click=${() => this._bulk("approve")}>Approve all (${this._proposals.length})</button>
+        <button class="sec" @click=${() => this._bulk("reject")}>Reject all</button></div>`}
       ${this._proposals.map((p) => this._renderProposal(p))}
       <h2>Custom commands awaiting approval</h2>
       ${cmds.length === 0 ? html`<p class="muted">Nothing to review.</p>` : nothing}
@@ -205,6 +207,8 @@ class AssistLearnerPanel extends LitElement {
       ${p.diff ? html`<pre>${p.diff}</pre>` : nothing}
       ${p.examples.map((e) => html`<div class="muted">"${e}"</div>`)}
       ${p.warnings.map((w) => html`<div class="warn">⚠ ${w}</div>`)}
+      ${p.suggestion ? html`<div class="muted">LLM suggestion: <code>${p.suggestion}</code>
+        <button class="chip" @click=${() => (this._editing = { ...this._editing, [p.id]: p.suggestion })}>Use suggestion</button></div>` : nothing}
       ${edit !== undefined ? html`<input .value=${edit} @input=${(e) => (this._editing = { ...this._editing, [p.id]: e.target.value })} />` : nothing}
       <div class="row">
         <button @click=${() => this._run(() => this._ws("proposals/decide", { proposal_id: p.id, decision: "approve", ...(edit !== undefined ? { template: edit } : {}) }), "Approved")}>${edit !== undefined ? "Save & approve" : "Approve"}</button>
@@ -212,6 +216,14 @@ class AssistLearnerPanel extends LitElement {
         <button class="sec" @click=${() => this._run(() => this._ws("proposals/decide", { proposal_id: p.id, decision: "reject" }), "Rejected")}>Reject</button>
       </div>
     </div>`;
+  }
+
+  async _bulk(decision) {
+    if (!confirm(`${decision === "approve" ? "Approve" : "Reject"} all ${this._proposals.length} proposals?`)) return;
+    await this._run(async () => {
+      const r = await this._ws("proposals/bulk", { proposal_ids: this._proposals.map((p) => p.id), decision });
+      this._info = `${r.done.length} done` + (r.failed.length ? `, ${r.failed.length} failed: ${r.failed.map((f) => f.error).join("; ")}` : "");
+    });
   }
 
   _cmdById(id) {

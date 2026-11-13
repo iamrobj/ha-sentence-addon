@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.service import async_register_admin_service
@@ -141,7 +141,40 @@ def _register_services(hass: HomeAssistant) -> None:
 
         await learned.async_delete(hass, _first_entry(hass), call.data["learned_id"])
 
+    async def create_command(call: ServiceCall) -> dict:
+        cmd = _first_entry(hass).runtime_data.commands.create(
+            call.data["name"], call.data["description"], call.data["entities"],
+            call.data.get("examples"), call.data.get("command_type", "answer"),
+        )
+        return {"id": cmd["id"]}
+
+    async def generate_command(call: ServiceCall) -> dict:
+        cmd = await _first_entry(hass).runtime_data.commands.generate(call.data["command_id"], call.data.get("feedback"))
+        return {"id": cmd["id"], "status": cmd["status"], "validation": cmd["validation"]}
+
+    async def decide_command(call: ServiceCall) -> dict:
+        mgr = _first_entry(hass).runtime_data.commands
+        d, cid = call.data["decision"], call.data["command_id"]
+        if d == "approve":
+            cmd = await mgr.approve(cid)
+        elif d == "reject":
+            cmd = await mgr.reject(cid)
+        else:
+            cmd = await mgr.set_enabled(cid, d == "enable")
+        return {"id": cid, "status": cmd["status"]}
+
     reg = async_register_admin_service
+    for name, fn, schema in (
+        ("create_command", create_command, vol.Schema({
+            vol.Required("name"): str, vol.Required("description"): str,
+            vol.Required("entities"): {str: str}, vol.Optional("examples"): [str],
+            vol.Optional("command_type"): vol.In(["answer", "action", "answer_and_action"])})),
+        ("generate_command", generate_command, vol.Schema({vol.Required("command_id"): str, vol.Optional("feedback"): str})),
+        ("decide_command", decide_command, vol.Schema({
+            vol.Required("command_id"): str,
+            vol.Required("decision"): vol.In(["approve", "reject", "enable", "disable"])})),
+    ):
+        async_register_admin_service(hass, DOMAIN, name, fn, schema, supports_response=SupportsResponse.OPTIONAL)
     reg(hass, DOMAIN, "run_proposer", run_proposer, vol.Schema({}))
     reg(hass, DOMAIN, "approve", approve, vol.Schema({vol.Required("proposal_id"): str, vol.Optional("template"): str}))
     reg(hass, DOMAIN, "reject", reject, vol.Schema({vol.Required("proposal_id"): str, vol.Optional("note"): str}))

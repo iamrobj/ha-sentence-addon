@@ -44,8 +44,13 @@
           "execution_log_size": "Execution log size",
           "carrier_verbs": "Allowed carrier verbs",
           "default_player": "Default player",
-          "prefer_calling_device_player": "Prefer the calling device's own player"
+          "prefer_calling_device_player": "Prefer the calling device's own player",
+          "llm_generalise": "Ask the LLM to suggest richer templates for nightly proposals"
         }
+      },
+      "areas": {
+        "title": "Preferred player per area",
+        "description": "Areas with several Music Assistant players. Area ids are shown as keys."
       }
     }
   },
@@ -107,6 +112,60 @@
         "learned_id": {
           "name": "Learned ID",
           "description": "ID of the learned template."
+        }
+      }
+    },
+    "create_command": {
+      "name": "Create command",
+      "description": "Create a draft custom command from a plain-English description.",
+      "fields": {
+        "name": {
+          "name": "Name",
+          "description": "Short name."
+        },
+        "description": {
+          "name": "Description",
+          "description": "What it should do."
+        },
+        "entities": {
+          "name": "Entities",
+          "description": "Map of label to entity id (the allow-list)."
+        },
+        "examples": {
+          "name": "Examples",
+          "description": "Example phrasings."
+        },
+        "command_type": {
+          "name": "Type",
+          "description": "answer, action or answer_and_action."
+        }
+      }
+    },
+    "generate_command": {
+      "name": "Generate command",
+      "description": "Ask the linked LLM to draft sentences and responses (regenerates with feedback).",
+      "fields": {
+        "command_id": {
+          "name": "Command ID",
+          "description": "Draft command id."
+        },
+        "feedback": {
+          "name": "Feedback",
+          "description": "Steer a regeneration."
+        }
+      }
+    },
+    "decide_command": {
+      "name": "Decide command",
+      "description": "Approve, reject, enable or disable a command.",
+      "fields": {
+        "command_id": {
+          "name": "Command ID",
+          "description": "Command id."
+        },
+        "decision": {
+          "name": "Decision",
+          "description": "approve, reject, enable or disable."
         }
       }
     }

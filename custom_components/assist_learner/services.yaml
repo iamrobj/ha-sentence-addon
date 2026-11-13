@@ -29,3 +29,45 @@ delete_learned:
       required: true
       selector:
         text:
+create_command:
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+    description:
+      required: true
+      selector:
+        text:
+          multiline: true
+    entities:
+      required: true
+      selector:
+        object:
+    examples:
+      selector:
+        object:
+    command_type:
+      selector:
+        select:
+          options: [answer, action, answer_and_action]
+generate_command:
+  fields:
+    command_id:
+      required: true
+      selector:
+        text:
+    feedback:
+      selector:
+        text:
+decide_command:
+  fields:
+    command_id:
+      required: true
+      selector:
+        text:
+    decision:
+      required: true
+      selector:
+        select:
+          options: [approve, reject, enable, disable]

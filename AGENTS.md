@@ -29,3 +29,9 @@ Target HA: **2026.11.x**, Python 3.14.
 
 ## Layout
 See plan §4. Tests in `tests/`. Spike notes in `docs/spike-notes.md`.
+
+## Module map (differs slightly from plan §4)
+`handlers.py` (runtime intent handlers; NOT `intent.py`, see LEARNINGS), `learned.py` (approve/reject/edit),
+`players.py`, `sentences.py` (YAML writer), `recognizer.py` (the only touchpoint for the default-agent recognizer),
+`websocket.py` + `panel.py` + `frontend/`, `commands/` (model, generate, validate, template_guard, actions,
+importer, manager), `proposer/` (music learner, alignment, templating, validate, generalise), `replay.py`.

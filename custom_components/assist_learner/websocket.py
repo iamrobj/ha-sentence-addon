@@ -80,6 +80,25 @@ async def h_proposals_decide(hass, entry, msg):
     return {}
 
 
+async def h_proposals_bulk(hass, entry, msg):
+    done, failed = [], []
+    for pid in msg["proposal_ids"]:
+        try:
+            if msg["decision"] == "approve":
+                await learned.async_approve(hass, entry, pid)
+            else:
+                await learned.async_reject(hass, entry, pid, msg.get("note"))
+            done.append(pid)
+        except HomeAssistantError as err:
+            failed.append({"id": pid, "error": str(err)})
+    return {"done": done, "failed": failed}
+
+
+async def h_misses_export(hass, entry, msg):
+    """Full miss records for the offline replay harness (raw text exists only while retained)."""
+    return entry.runtime_data.store.misses.values()
+
+
 async def h_run_proposer(hass, entry, msg):
     created = await async_run_proposer(hass, entry)
     return {"created": len(created)}
@@ -258,6 +277,9 @@ COMMANDS = [
     _cmd("proposals/decide", {vol.Required("proposal_id"): _STR, vol.Required("decision"): vol.In(["approve", "reject"]),
                               vol.Optional("template"): _STR, vol.Optional("note"): _STR}, h_proposals_decide),
     _cmd("run_proposer", {}, h_run_proposer),
+    _cmd("proposals/bulk", {vol.Required("proposal_ids"): [_STR], vol.Required("decision"): vol.In(["approve", "reject"]),
+                            vol.Optional("note"): _STR}, h_proposals_bulk),
+    _cmd("misses/export", {}, h_misses_export),
     _cmd("sentences/list", {vol.Optional("source"): vol.In(["learned", "custom", "external"]),
                             vol.Optional("include_pending"): bool}, h_sentences_list),
     _cmd("sentences/test", {vol.Required("text"): _STR}, h_sentences_test),

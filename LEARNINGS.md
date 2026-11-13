@@ -86,3 +86,13 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
 - 2026-11-13 — Update proposals (template differs from a learned one only by optionals) must be allowed to match our
   OWN learned intent in the "already local"/greediness checks (`allow_learned`), otherwise they are always dropped.
 - 2026-11-13 — Replay harness: `python -m custom_components.assist_learner.replay misses.json` (static checks only).
+
+## Known gaps / unverified (be honest in reviews)
+- Dev/CI runs HA 2026.10.4 (see Dev env gotchas); nothing has been run on 2026.11.x or a live instance.
+- Not yet verified on a live HA: which sentence wins when a custom and a built-in sentence both match (plan risk 10).
+  The collision check therefore blocks approval by default; `accept_collisions` lets the user accept overlap.
+- The `ai_task.generate_data` structure (object selectors for slots/actions) is exercised only against a fake AI Task
+  entity; verify against the real Anthropic AI Task entity. `generate.normalise_result` also accepts JSON strings.
+- Panel verified only with the jsdom smoke test, not visually in a browser.
+- Entity `supported_features` are not checked during action validation.
+- Sentence-trigger automations are discovered only from `automations.yaml`; intent_script only from `configuration.yaml`.
