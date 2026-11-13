@@ -1,0 +1,3 @@
+pytest-homeassistant-custom-component
+homeassistant==2026.11.1
+ruff
