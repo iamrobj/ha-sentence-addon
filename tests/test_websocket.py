@@ -121,3 +121,34 @@ async def test_misses_and_import_endpoints(hass, hass_ws_client):
     r = await call(client, "import/apply", intents=["Nope"])
     assert r["success"] and r["result"] == []
 
+
+
+async def test_yaml_roundtrip_and_edit(hass, hass_ws_client):
+    from tests.test_commands import GOOD_ACTION
+
+    entry, mgr, ai = await _setup(hass)
+    client = await hass_ws_client(hass)
+    fields = {k: GOOD_ACTION[k] for k in ("type", "sentences", "slots", "actions", "response_template")}
+    fields |= {"name": "Lounge level", "entities": {"lounge": "light.lounge"}}
+
+    dumped = (await call(client, "commands/to_yaml", fields=fields))["result"]["yaml"]
+    assert "sentences:" in dumped and dumped.index("name:") < dumped.index("sentences:")
+    back = (await call(client, "commands/from_yaml", yaml=dumped))["result"]["fields"]
+    assert back == fields
+
+
+@pytest.mark.parametrize(
+    "text, msg",
+    [
+        ("sentences: [", "Invalid YAML"),
+        ("- a\n- b", "mapping"),
+        ("bogus: 1", "Unknown field"),
+        ("sentences: hello", "must be a list"),
+        ("slots: [1]", "must be a mapping"),
+    ],
+)
+async def test_from_yaml_rejects_bad_input(hass, hass_ws_client, text, msg):
+    await _setup(hass)
+    client = await hass_ws_client(hass)
+    resp = await call(client, "commands/from_yaml", yaml=text)
+    assert resp["success"] is False and msg in resp["error"]["message"]

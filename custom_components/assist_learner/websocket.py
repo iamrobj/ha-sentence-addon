@@ -10,6 +10,8 @@ from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util.yaml import dump as yaml_dump
+from homeassistant.util.yaml import parse_yaml
 
 from . import learned, recognizer
 from .const import CONF_LANGUAGE, DOMAIN, STATUS_PENDING
@@ -204,6 +206,37 @@ async def h_cmd_update(hass, entry, msg):
     return _scrub(await entry.runtime_data.commands.update(msg["item_id"], msg["fields"]))
 
 
+# Fields shown in the builder / raw YAML editor, in the order they appear in YAML.
+YAML_FIELDS = (
+    "name", "type", "sentences", "slots", "entities", "actions", "response_template", "unavailable_template",
+)
+
+
+async def h_cmd_to_yaml(hass, entry, msg):
+    """Builder -> YAML. Stateless: converts the panel's unsaved draft, nothing is stored."""
+    fields = msg["fields"]
+    return {"yaml": yaml_dump({k: fields[k] for k in YAML_FIELDS if k in fields})}
+
+
+async def h_cmd_from_yaml(hass, entry, msg):
+    """YAML -> builder fields. Syntax/shape errors are reported; semantic checks happen on save."""
+    try:
+        data = parse_yaml(msg["yaml"])
+    except (HomeAssistantError, ValueError) as err:
+        raise HomeAssistantError(f"Invalid YAML: {err}") from err
+    if not isinstance(data, dict):
+        raise HomeAssistantError("The YAML must be a mapping of fields (name, sentences, ...)")
+    if unknown := sorted(set(data) - set(YAML_FIELDS)):
+        raise HomeAssistantError(f"Unknown field(s): {', '.join(map(str, unknown))}")
+    for key in ("sentences", "actions"):
+        if key in data and not isinstance(data[key], list):
+            raise HomeAssistantError(f"'{key}' must be a list")
+    for key in ("slots", "entities"):
+        if key in data and not isinstance(data[key], dict):
+            raise HomeAssistantError(f"'{key}' must be a mapping")
+    return {"fields": data}
+
+
 async def h_cmd_decide(hass, entry, msg):
     mgr = entry.runtime_data.commands
     d = msg["decision"]
@@ -292,6 +325,8 @@ COMMANDS = [
     _cmd("commands/create", {vol.Required("name"): _STR, vol.Required("description"): _STR,
                              vol.Required("entities"): {_STR: _STR}, vol.Optional("examples"): [_STR],
                              vol.Optional("cmd_type"): vol.In(["answer", "action", "answer_and_action"])}, h_cmd_create),
+    _cmd("commands/to_yaml", {vol.Required("fields"): dict}, h_cmd_to_yaml),
+    _cmd("commands/from_yaml", {vol.Required("yaml"): _STR}, h_cmd_from_yaml),
     _cmd("commands/payload", {**_ID, vol.Optional("feedback"): _STR}, h_cmd_payload),
     _cmd("commands/generate", {**_ID, vol.Optional("feedback"): _STR}, h_cmd_generate),
     _cmd("commands/regenerate", {**_ID, vol.Required("feedback"): _STR}, h_cmd_generate),

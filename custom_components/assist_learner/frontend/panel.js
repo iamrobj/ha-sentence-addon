@@ -9,6 +9,47 @@ const callWS = (hass, type, params = {}) => hass.callWS({ type: WS + type, ...pa
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString() : "never");
 const lines = (text) => text.split("\n").map((s) => s.trim()).filter(Boolean);
 
+// ---- command <-> builder form conversion (the API form is what is stored / shown as YAML) ----------
+const showVal = (v) => (typeof v === "string" ? v : JSON.stringify(v));
+const parseVal = (v) => {
+  const t = String(v).trim();
+  try {
+    return JSON.parse(t);
+  } catch (_) {
+    return t;
+  }
+};
+const toForm = (f) => ({
+  name: f.name || "",
+  type: f.type || "answer",
+  sentences: [...(f.sentences || [])],
+  slots: Object.entries(f.slots || {}).map(([name, d]) => ({
+    name, type: d.type || "number", min: d.min ?? 0, max: d.max ?? 100, step: d.step ?? 1, values: (d.values || []).join(", "),
+  })),
+  entities: Object.entries(f.entities || {}).map(([role, entity]) => ({ role, entity })),
+  actions: (f.actions || []).map((a) => ({
+    service: a.service || "", targets: [...(a.targets || [])],
+    data: Object.entries(a.data || {}).map(([k, v]) => ({ k, v: showVal(v) })),
+  })),
+  response_template: f.response_template || "",
+  unavailable_template: f.unavailable_template || "",
+});
+const fromForm = (d) => ({
+  name: d.name,
+  type: d.type,
+  sentences: d.sentences.map((x) => x.trim()).filter(Boolean),
+  slots: Object.fromEntries(d.slots.filter((x) => x.name).map((x) => [x.name, x.type === "number"
+    ? { type: "number", min: Number(x.min), max: Number(x.max), step: Number(x.step) || 1 }
+    : { type: "choice", values: String(x.values).split(",").map((v) => v.trim()).filter(Boolean) }])),
+  entities: Object.fromEntries(d.entities.filter((e) => e.role && e.entity).map((e) => [e.role, e.entity])),
+  actions: d.actions.filter((a) => a.service).map((a) => ({
+    service: a.service, targets: a.targets,
+    data: Object.fromEntries(a.data.filter((x) => x.k).map((x) => [x.k, parseVal(x.v)])),
+  })),
+  response_template: d.response_template,
+  unavailable_template: d.unavailable_template,
+});
+
 /** Entity picker: HA's own when available, otherwise a searchable input with a datalist. */
 class AlEntityPicker extends LitElement {
   static properties = { hass: {}, value: { type: String } };
@@ -316,17 +357,114 @@ class AssistLearnerPanel extends LitElement {
     return html`
       <div class="row">
         <button class="sec" @click=${() => this._run(() => toggle(!r.enabled))}>${r.enabled ? "Disable" : "Enable"}</button>
-        <button class="sec" @click=${() => (this._editing = { ...this._editing, [k]: r.source === "learned" ? r.sentences[0] : { sentences: r.sentences.join("\n"), response: r.response || "" } })}>Edit</button>
+        <button class="sec" @click=${() => this._startEdit(r, k)}>Edit</button>
         <button class="sec" @click=${() => this._history(r)}>History</button>
         <button class="sec" @click=${() => this._run(() => this._ws(r.source === "learned" ? "learned/delete" : "commands/delete", { item_id: r.id }), "Deleted")}>Delete</button>
         ${r.source === "custom" && r.type !== "answer" ? html`<button class="sec" @click=${() => this._runOnce(r)}>Run once</button>` : nothing}
       </div>
       ${ed !== undefined ? (typeof ed === "string"
         ? html`<input .value=${ed} @input=${(e) => (this._editing = { ...this._editing, [k]: e.target.value })} /><button @click=${() => this._run(async () => { await this._ws("learned/update", { item_id: r.id, template: ed }); delete this._editing[k]; }, "Saved")}>Save</button>`
-        : html`<textarea rows="5" .value=${ed.sentences} @input=${(e) => (this._editing = { ...this._editing, [k]: { ...ed, sentences: e.target.value } })}></textarea>
-               <textarea rows="3" .value=${ed.response} @input=${(e) => (this._editing = { ...this._editing, [k]: { ...ed, response: e.target.value } })}></textarea>
-               <button @click=${() => this._run(async () => { await this._ws("commands/update", { item_id: r.id, fields: { sentences: lines(ed.sentences), response_template: ed.response } }); delete this._editing[k]; }, "Saved (re-validated)")}>Save</button>`) : nothing}
+        : this._renderCmdEditor(r, k, ed)) : nothing}
       ${this._open[`hist_${r.source}_${r.id}`] ? html`<h4>History</h4>${this._open[`hist_${r.source}_${r.id}`].map((h, i) => html`<div class="muted">${fmt(h.at)} ${h.reason || ""} <button class="chip" @click=${() => this._run(() => this._ws(r.source === "learned" ? "learned/revert" : "commands/revert", { item_id: r.id, index: i }), "Reverted")}>Revert to this</button></div>`)}` : nothing}`;
+  }
+
+  async _startEdit(r, k) {
+    if (r.source === "learned") {
+      this._editing = { ...this._editing, [k]: r.sentences[0] };
+      return;
+    }
+    await this._run(async () => {
+      const full = await this._ws("commands/get", { item_id: r.id });
+      this._editing = { ...this._editing, [k]: { mode: "builder", form: toForm(full), yaml: "" } };
+    });
+  }
+
+  _setEd(k, patch) {
+    this._editing = { ...this._editing, [k]: { ...this._editing[k], ...patch } };
+  }
+
+  async _switchMode(k, ed, mode) {
+    if (mode === ed.mode) return;
+    try {
+      if (mode === "yaml") {
+        const { yaml } = await this._ws("commands/to_yaml", { fields: fromForm(ed.form) });
+        this._setEd(k, { mode, yaml });
+      } else {
+        const { fields } = await this._ws("commands/from_yaml", { yaml: ed.yaml });
+        this._setEd(k, { mode, form: toForm({ ...fromForm(ed.form), ...fields }) });
+      }
+    } catch (_) {
+      /* error shown; stay in the current mode so nothing is lost */
+    }
+  }
+
+  async _saveCmd(r, k, ed) {
+    await this._run(async () => {
+      const fields = ed.mode === "yaml" ? (await this._ws("commands/from_yaml", { yaml: ed.yaml })).fields : fromForm(ed.form);
+      await this._ws("commands/update", { item_id: r.id, fields });
+      const { [k]: _gone, ...rest } = this._editing;
+      this._editing = rest;
+    }, "Saved (re-validated)");
+  }
+
+  _renderCmdEditor(r, k, ed) {
+    const f = ed.form;
+    const upd = (patch) => this._setEd(k, { form: { ...f, ...patch } });
+    const at = (key, i, patch) => upd({ [key]: f[key].map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+    const del = (key, i) => upd({ [key]: f[key].filter((_, j) => j !== i) });
+    const roles = f.entities.map((e) => e.role).filter(Boolean);
+    const modeBtn = (m, label) => html`<button class=${ed.mode === m ? "chip on" : "chip"} @click=${() => this._switchMode(k, ed, m)}>${label}</button>`;
+    return html`<div class="builder">
+      <div class="row">${modeBtn("builder", "Builder")}${modeBtn("yaml", "YAML")}</div>
+      ${ed.mode === "yaml"
+        ? html`<textarea class="yaml" rows="22" spellcheck="false" .value=${ed.yaml} @input=${(e) => this._setEd(k, { yaml: e.target.value })}></textarea>
+               <div class="muted">Fields: name, type, sentences, slots, entities, actions, response_template, unavailable_template. Saving re-validates everything.</div>`
+        : html`
+          <label>Name<input .value=${f.name} @input=${(e) => upd({ name: e.target.value })} /></label>
+          <label>Type<select .value=${f.type} @change=${(e) => upd({ type: e.target.value })}>
+            ${[["answer", "Answer"], ["action", "Action"], ["answer_and_action", "Answer and action"]].map(([v, l]) => html`<option value=${v} ?selected=${f.type === v}>${l}</option>`)}</select></label>
+
+          <h4>Sentences <span class="muted">(use {slot} for a value; (optional words) and [a|b] alternatives work)</span></h4>
+          ${f.sentences.map((x, i) => html`<div class="row"><input .value=${x} @input=${(e) => upd({ sentences: f.sentences.map((y, j) => (j === i ? e.target.value : y)) })} />
+            <button class="chip" @click=${() => del("sentences", i)}>✕</button></div>`)}
+          <button class="sec" @click=${() => upd({ sentences: [...f.sentences, ""] })}>+ Add sentence</button>
+
+          <h4>Slots <span class="muted">(values the speaker can say)</span></h4>
+          ${f.slots.map((x, i) => html`<div class="row slot">
+            <input class="role" placeholder="name" .value=${x.name} @input=${(e) => at("slots", i, { name: e.target.value })} />
+            <select @change=${(e) => at("slots", i, { type: e.target.value })}>${["number", "choice"].map((t) => html`<option value=${t} ?selected=${x.type === t}>${t}</option>`)}</select>
+            ${x.type === "number"
+              ? html`<input class="num" type="number" title="min" .value=${x.min} @input=${(e) => at("slots", i, { min: e.target.value })} />
+                     <input class="num" type="number" title="max" .value=${x.max} @input=${(e) => at("slots", i, { max: e.target.value })} />
+                     <input class="num" type="number" title="step" .value=${x.step} @input=${(e) => at("slots", i, { step: e.target.value })} />`
+              : html`<input placeholder="comma separated values" .value=${x.values} @input=${(e) => at("slots", i, { values: e.target.value })} />`}
+            <button class="chip" @click=${() => del("slots", i)}>✕</button></div>`)}
+          <button class="sec" @click=${() => upd({ slots: [...f.slots, { name: "", type: "number", min: 0, max: 100, step: 1, values: "" }] })}>+ Add slot</button>
+
+          <h4>Entities <span class="muted">(the allow-list this command can read or control)</span></h4>
+          ${f.entities.map((e, i) => html`<div class="row ent">
+            <input class="role" placeholder="label" .value=${e.role} @input=${(ev) => at("entities", i, { role: ev.target.value })} />
+            <al-entity-picker .hass=${this.hass} .value=${e.entity} @picked=${(ev) => at("entities", i, { entity: ev.detail.value })}></al-entity-picker>
+            <button class="chip" @click=${() => del("entities", i)}>✕</button></div>`)}
+          <button class="sec" @click=${() => upd({ entities: [...f.entities, { role: "", entity: "" }] })}>+ Add entity</button>
+
+          <h4>Actions <span class="muted">(service calls; use {slot} in a value)</span></h4>
+          ${f.actions.map((a, i) => html`<div class="card sub">
+            <div class="row"><input placeholder="domain.service, e.g. light.turn_on" .value=${a.service} @input=${(e) => at("actions", i, { service: e.target.value })} />
+              <button class="chip" @click=${() => del("actions", i)}>✕</button></div>
+            <div class="row">Targets: ${roles.length === 0 ? html`<span class="muted">add entities first</span>` : roles.map((role) => html`<label class="inline"><input type="checkbox" .checked=${a.targets.includes(role)}
+              @change=${(e) => at("actions", i, { targets: e.target.checked ? [...a.targets, role] : a.targets.filter((t) => t !== role) })} />${role}</label>`)}</div>
+            ${a.data.map((d, di) => html`<div class="row"><input class="role" placeholder="field" .value=${d.k} @input=${(e) => at("actions", i, { data: a.data.map((x, j) => (j === di ? { ...x, k: e.target.value } : x)) })} />
+              <input placeholder="value" .value=${d.v} @input=${(e) => at("actions", i, { data: a.data.map((x, j) => (j === di ? { ...x, v: e.target.value } : x)) })} />
+              <button class="chip" @click=${() => at("actions", i, { data: a.data.filter((_, j) => j !== di) })}>✕</button></div>`)}
+            <button class="sec" @click=${() => at("actions", i, { data: [...a.data, { k: "", v: "" }] })}>+ Add field</button></div>`)}
+          <button class="sec" @click=${() => upd({ actions: [...f.actions, { service: "", targets: [], data: [] }] })}>+ Add action</button>
+
+          <label>Spoken response (Jinja template)<textarea rows="3" .value=${f.response_template} @input=${(e) => upd({ response_template: e.target.value })}></textarea></label>
+          <label>If an entity is unavailable (optional)<textarea rows="2" .value=${f.unavailable_template} @input=${(e) => upd({ unavailable_template: e.target.value })}></textarea></label>`}
+      <div class="row"><button @click=${() => this._saveCmd(r, k, ed)}>Save</button>
+        <button class="sec" @click=${() => { const { [k]: _gone, ...rest } = this._editing; this._editing = rest; }}>Cancel</button></div>
+    </div>`;
   }
 
   async _history(r) {
@@ -431,6 +569,10 @@ class AssistLearnerPanel extends LitElement {
     header { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; }
     h1 { margin: 0 0 8px; } h2 { margin: 16px 0 8px; font-size: 1.2em; } h4 { margin: 12px 0 4px; }
     nav { display: flex; gap: 4px; flex-wrap: wrap; margin: 12px 0; border-bottom: 1px solid var(--divider-color); }
+    .builder { border-top: 1px solid var(--divider-color); margin-top: 8px; padding-top: 8px; }
+    .builder label { display: block; margin: 6px 0; } .builder input, .builder select, .builder textarea { box-sizing: border-box; }
+    .builder textarea { width: 100%; } .yaml { font-family: monospace; }
+    .row input.num { flex: 0 0 80px; min-width: 80px; width: 80px; } .sub { margin: 6px 0; } label.inline { display: inline-flex; gap: 4px; margin-right: 10px; }
     .tab { background: none; border: none; padding: 10px 14px; cursor: pointer; color: var(--primary-text-color); border-bottom: 3px solid transparent; }
     .tab.on { border-bottom-color: var(--primary-color); font-weight: bold; }
     .card { background: var(--card-background-color, #fff); border-radius: 8px; padding: 12px 16px; margin: 8px 0; box-shadow: var(--ha-card-box-shadow, 0 1px 3px rgba(0,0,0,.2)); }

@@ -78,6 +78,14 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   mocked `hass.callWS`) — NOT in a real browser against a live HA. Do a manual look in HA before release.
   jsdom must be v24 on Node 20 (newer jsdom needs a newer Node).
 
+## Sentence editor (builder / YAML)
+- 2026-11-13 — Custom-command editor in the Sentences tab has a Builder and a raw YAML mode. No JS YAML parser is vendored, so
+  switching modes round-trips the unsaved draft through stateless websocket calls `commands/to_yaml` / `commands/from_yaml`
+  (HA's own yaml util). A YAML parse/shape error keeps you in the current mode so edits aren't lost. Save always goes through
+  `commands/update` (full re-validation). Learned templates keep the single-line editor (a template string has no structure
+  worth a builder). Action data values in the builder are JSON-parsed when possible ("5" becomes 5; `{level}` stays a string).
+- Builder/YAML editor has only had the jsdom smoke test, not a real browser.
+
 ## Hardening
 - 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
   habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.
