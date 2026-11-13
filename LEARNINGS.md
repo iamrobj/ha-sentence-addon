@@ -74,3 +74,6 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   CDN at runtime, no build step in the repo). To rebuild: `npm i lit esbuild`, entry exports
   `{LitElement, html, css, nothing, svg}`, `esbuild entry.js --bundle --minify --format=esm`.
 - 2026-11-13 — Panel registered with `panel_custom` + static path `/assist_learner_static` (admin only).
+- 2026-11-13 — Panel is verified only by a jsdom smoke test (`tests/frontend/panel_smoke.mjs`, renders every tab with a
+  mocked `hass.callWS`) — NOT in a real browser against a live HA. Do a manual look in HA before release.
+  jsdom must be v24 on Node 20 (newer jsdom needs a newer Node).

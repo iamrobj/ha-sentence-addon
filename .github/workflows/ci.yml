@@ -9,3 +9,11 @@ jobs:
       - run: uv venv --python 3.14 .venv && uv pip install --python .venv/bin/python -r requirements_test.txt
       - run: .venv/bin/ruff check .
       - run: .venv/bin/pytest
+  panel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: cd tests/frontend && npm i jsdom@24 --no-save && node panel_smoke.mjs
