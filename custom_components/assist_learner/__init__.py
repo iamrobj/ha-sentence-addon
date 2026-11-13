@@ -15,10 +15,12 @@ from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
+from . import websocket
 from .commands.manager import CommandManager
 from .const import CONF_RUN_TIME, DOMAIN
 from .handlers import async_register_intents, async_unregister_intents
 from .options import get_options
+from .panel import async_register_panel
 from .repairs import sync_issues
 from .store import AssistLearnerStore
 
@@ -53,6 +55,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
     entry.runtime_data.commands = CommandManager(hass, entry)
     _schedule_nightly(hass, entry)
     _register_services(hass)
+    websocket.async_register(hass)
+    await async_register_panel(hass)
     entry.async_on_unload(
         entry.runtime_data.async_add_listener(lambda: sync_issues(hass, entry))
     )

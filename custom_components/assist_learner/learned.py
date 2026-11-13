@@ -138,3 +138,36 @@ def record_hit(entry: ConfigEntry, learned_id: str) -> None:
     store.learned.put(learned_id, row)
     store.bump("local_hits")
     entry.runtime_data.async_notify_listeners()
+
+
+async def async_edit(hass: HomeAssistant, entry: ConfigEntry, learned_id: str, template: str) -> dict[str, Any]:
+    """Edit an active learned template (re-validated; the old version goes to history)."""
+    store = entry.runtime_data.store
+    row = store.learned.get(learned_id)
+    if row is None:
+        raise ProposalError(f"Unknown learned template {learned_id}")
+    final = " ".join(template.split())
+    check = await async_check_template(
+        hass,
+        final,
+        {"track": "lose control", "artist": "teddy swims", "player": "living room"},
+        entry.data[CONF_LANGUAGE],
+        get_options(entry)[CONF_CARRIER_VERBS],
+    )
+    # an already-active template matches itself, so only structural failures matter here
+    if check.block_reason:
+        raise ProposalError(check.block_reason)
+    row["history"] = [*row.get("history", []), {"at": dt_util.utcnow().isoformat(), "template": row["template"]}]
+    row["template"] = final
+    row["fingerprint"] = fingerprint(final)
+    store.learned.put(learned_id, row)
+    await async_write_sentences(hass, entry)
+    entry.runtime_data.async_notify_listeners()
+    return row
+
+
+async def async_revert(hass: HomeAssistant, entry: ConfigEntry, learned_id: str, index: int) -> dict[str, Any]:
+    row = entry.runtime_data.store.learned.get(learned_id)
+    if row is None or not (0 <= index < len(row.get("history", []))):
+        raise ProposalError("No such version")
+    return await async_edit(hass, entry, learned_id, row["history"][index]["template"])

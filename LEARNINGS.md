@@ -67,3 +67,10 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   allow-list, field names/ranges from live descriptions, climate min/max). Documented limitation.
 - 2026-11-13 — `async_at_started` callbacks must be `@callback`-decorated or HA runs them in a thread and
   `hass.async_create_task` raises a thread-safety error.
+
+## Panel / websocket
+- 2026-11-13 — Websocket messages reserve `id` (message id) and `type`; use `item_id` for entity ids in our API.
+- 2026-11-13 — Lit is vendored as `frontend/vendor/lit.js` (esbuild bundle of lit@3.2.1 + repeat/unsafe-html; no
+  CDN at runtime, no build step in the repo). To rebuild: `npm i lit esbuild`, entry exports
+  `{LitElement, html, css, nothing, svg}`, `esbuild entry.js --bundle --minify --format=esm`.
+- 2026-11-13 — Panel registered with `panel_custom` + static path `/assist_learner_static` (admin only).
