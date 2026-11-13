@@ -23,3 +23,24 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   Pass the SAME conversation_id. Details in `docs/spike-notes.md`.
 - 2026-11-13 — No Docker: API confirmation is by reading installed source + pytest-homeassistant-custom-component.
   Anything needing a live instance is flagged "verify-in-test" in the spike notes.
+
+## Dev env gotchas (read before touching the venv)
+- 2026-11-13 — **Dev/test env runs HA 2026.10.4, not 2026.11.1.** `pytest-homeassistant-custom-component`
+  0.13.375 (latest) is pinned to 2026.10.4 and breaks on 2026.11.1 (private import `_clear_logger_overwrites`
+  from `components.logger`; also httpx/httpx2 aliasing order). Re-check PyPI for a newer plugin release and bump
+  `requirements_test.txt` + CI when one exists. Spike notes were read from 2026.11.1 source; APIs used so far are
+  identical in 2026.10.4.
+- 2026-11-13 — The plugin does NOT install requirements of HA components our integration depends on
+  (hassil, home-assistant-intents, ha-ffmpeg, frontend, ...). They are listed in `requirements_test.txt`.
+  When adding a dependency component, run the manifest-requirements scan and add what's missing.
+- 2026-11-13 — Never `uv pip install pytest-homeassistant-custom-component` unpinned: the resolver backtracks to
+  0.2.1 (pytest 6). Keep it pinned. If the venv gets weird, `rm -rf .venv` and rebuild.
+- 2026-11-13 — Tests must `async_setup_component(hass, "homeassistant", {})` first, otherwise `conversation`
+  fails on `exposed_entities`.
+
+## HA API gotchas
+- 2026-11-13 — `ToolResultContent.tool_result` is deprecated (removed 2027.11, logs/errors); use `.result.data`.
+- 2026-11-13 — In tests, append content to `chat_log.content` directly for fake tool calls;
+  `async_add_assistant_content` raises "No LLM API configured" for non-external tool calls.
+- 2026-11-13 — Legacy-agent test double: `conversation.async_set_agent(hass, <obj with entry_id>, agent)` registers
+  an agent id usable with `async_converse(agent_id=<entry_id>)`.

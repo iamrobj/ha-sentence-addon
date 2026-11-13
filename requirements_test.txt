@@ -1,3 +1,13 @@
-pytest-homeassistant-custom-component
-homeassistant==2026.11.1
+pytest-homeassistant-custom-component==0.13.375
 ruff
+# requirements of HA core components our integration depends on (not installed by the plugin)
+gazetteer-matcher==1.1.0
+hassil==3.12.1
+home-assistant-intents==2026.10.6
+pymicro-vad==1.0.1
+pyspeex-noise==1.0.2
+mutagen==1.48.1
+ha-ffmpeg==3.2.2
+PyTurboJPEG==1.8.3
+home-assistant-frontend==20260930.5
+aiohasupervisor==0.6.0

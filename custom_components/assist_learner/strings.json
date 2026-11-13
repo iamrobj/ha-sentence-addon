@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Assist Learner",
+        "description": "Pick the LLM conversation agent that unmatched requests should be forwarded to.",
+        "data": {
+          "target_agent": "Target conversation agent",
+          "language": "Language"
+        }
+      }
+    },
+    "error": {
+      "agent_not_found": "That conversation agent was not found.",
+      "agent_is_self": "The target cannot be Assist Learner itself."
+    },
+    "abort": {
+      "already_configured": "Assist Learner is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Assist Learner settings",
+        "data": {
+          "run_time": "Nightly run time",
+          "min_occurrences": "Minimum occurrences before proposing",
+          "lookback_days": "Look-back window (days)",
+          "auto_approve": "Auto-approve learned templates",
+          "auto_approve_threshold": "Auto-approve threshold (occurrences)",
+          "retention_days": "Raw request retention (days, 0 = delete after nightly run)",
+          "max_proposals_per_night": "Max new proposals per night",
+          "notify": "Notify on new proposals",
+          "ai_task_entity": "AI Task entity (linked LLM)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "notify": {
+      "options": {
+        "none": "None",
+        "persistent": "Persistent notification"
+      }
+    }
+  }
+}

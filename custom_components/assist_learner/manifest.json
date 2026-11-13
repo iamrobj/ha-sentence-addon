@@ -1,0 +1,14 @@
+{
+  "domain": "assist_learner",
+  "name": "Assist Learner",
+  "version": "0.1.0",
+  "config_flow": true,
+  "dependencies": ["conversation", "assist_pipeline", "repairs"],
+  "after_dependencies": ["music_assistant", "ai_task"],
+  "iot_class": "calculated",
+  "integration_type": "service",
+  "requirements": [],
+  "codeowners": ["@iamrobj"],
+  "documentation": "https://github.com/iamrobj/ha-sentence-addon",
+  "issue_tracker": "https://github.com/iamrobj/ha-sentence-addon/issues"
+}
