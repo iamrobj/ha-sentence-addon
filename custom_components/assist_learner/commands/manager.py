@@ -16,6 +16,7 @@ from ..const import CONF_EXEC_LOG_SIZE, CONF_LANGUAGE
 from ..options import get_options
 from ..sentences import async_write_sentences
 from . import generate as gen
+from . import importer
 from .actions import RateLimiter, async_execute, log_execution
 from .model import HASH_FIELDS, content_hash, new_command, push_history
 from .validate import Report, async_validate_command
@@ -227,3 +228,41 @@ class CommandManager:
         )
         self.entry.runtime_data.async_notify_listeners()
         return result
+
+    # -- import ---------------------------------------------------------------------------------------
+    async def import_discover(self) -> dict[str, Any]:
+        return await self.hass.async_add_executor_job(importer.discover_sync, self.hass, self.language)
+
+    async def import_preview(self) -> list[dict[str, Any]]:
+        cands = await self.hass.async_add_executor_job(importer.preview_sync, self.hass, self.language)
+        out = []
+        for c in cands:
+            row = c.as_dict()
+            if c.command is not None:
+                report = await self.validate(c.command)
+                row["validation"] = c.command["validation"]
+                row["importable"] = True
+                row["collision_note"] = (
+                    "The original is still active; approve after removing it from "
+                    f"{c.intent.file} (intent {c.intent.name}) or accept the overlap."
+                    if report.collisions
+                    else None
+                )
+            else:
+                row["importable"] = False
+            out.append(row)
+        return out
+
+    async def import_apply(self, intent_names: list[str]) -> list[dict[str, Any]]:
+        """Create pending commands for the chosen intents. The originals are never touched."""
+        cands = await self.hass.async_add_executor_job(importer.preview_sync, self.hass, self.language)
+        created = []
+        for c in cands:
+            if c.intent.name not in intent_names:
+                continue
+            if c.command is None:
+                raise CommandError(f"{c.intent.name} cannot be imported: {c.unmappable}")
+            await self.validate(c.command)
+            self._save(c.command)
+            created.append(c.command)
+        return created
