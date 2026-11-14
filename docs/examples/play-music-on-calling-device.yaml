@@ -1,7 +1,9 @@
 alias: Play music on the calling device
 description: >-
-  "play <anything>" plays via Music Assistant on the player in the same area as the
-  voice device that heard it. "play X on/in <area or player>" targets that instead.
+  "play <anything>" plays via Music Assistant on the calling voice device's player.
+  Player lookup: "on/in <area or player>" if said; else the Music Assistant player that
+  wraps the satellite's own media player (matched by name); else a Music Assistant player
+  in the satellite's area; else default_player below. Says so if none is found.
 mode: parallel
 triggers:
   - trigger: conversation
@@ -9,6 +11,9 @@ triggers:
       - "play {query} (on|in) [the] {where}"
       - "(play|put on) [some] {query}"
       - "play [some] music"
+variables:
+  # Optional: set to a Music Assistant media_player entity id, e.g. media_player.kitchen_2
+  default_player: ""
 actions:
   - variables:
       query: "{{ trigger.slots.query | default('') }}"
@@ -26,10 +31,27 @@ actions:
             {% endfor %}
           {% endif %}
         {% elif trigger.device_id %}
-          {% set a = area_id(trigger.device_id) %}
-          {% if a %}{% set ns.p = area_entities(a) | select('in', players) | first | default('') %}{% endif %}
+          {# 1. the MA player wrapping this satellite's own media player (same name) #}
+          {% set own = device_entities(trigger.device_id) | select('match', 'media_player\.') | list %}
+          {% for o in own %}
+            {% set oname = (state_attr(o, 'friendly_name') or '') | lower %}
+            {% for e in players if not ns.p and oname and (state_attr(e, 'friendly_name') or '') | lower == oname %}
+              {% set ns.p = e %}
+            {% endfor %}
+          {% endfor %}
+          {# 2. any MA player in the satellite's area #}
+          {% if not ns.p %}
+            {% set a = area_id(trigger.device_id) %}
+            {% if a %}{% set ns.p = area_entities(a) | select('in', players) | first | default('') %}{% endif %}
+          {% endif %}
         {% endif %}
-        {{ ns.p or 'media_player.CHANGE_ME_default_player' }}
+        {{ ns.p or default_player }}
+  - if: "{{ player == '' }}"
+    then:
+      - set_conversation_response: >-
+          I couldn't find a Music Assistant player for this device. Put the speaker's Music
+          Assistant player in the same area as this voice assistant, or set a default player.
+      - stop: No Music Assistant player found
   - if: "{{ query == '' }}"
     then:
       - action: media_player.media_play
