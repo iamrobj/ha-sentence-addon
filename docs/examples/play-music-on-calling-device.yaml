@@ -1,0 +1,46 @@
+alias: Play music on the calling device
+description: >-
+  "play <anything>" plays via Music Assistant on the player in the same area as the
+  voice device that heard it. "play X on/in <area or player>" targets that instead.
+mode: parallel
+triggers:
+  - trigger: conversation
+    command:
+      - "play {query} (on|in) [the] {where}"
+      - "(play|put on) [some] {query}"
+      - "play [some] music"
+actions:
+  - variables:
+      query: "{{ trigger.slots.query | default('') }}"
+      where: "{{ trigger.slots.where | default('') }}"
+      player: >-
+        {% set players = integration_entities('music_assistant')
+             | select('match', 'media_player\.') | list %}
+        {% set ns = namespace(p='') %}
+        {% if where %}
+          {% set a = area_id(where) %}
+          {% if a %}{% set ns.p = area_entities(a) | select('in', players) | first | default('') %}{% endif %}
+          {% if not ns.p %}
+            {% for e in players if where | lower in (state_attr(e, 'friendly_name') or '') | lower %}
+              {% if not ns.p %}{% set ns.p = e %}{% endif %}
+            {% endfor %}
+          {% endif %}
+        {% elif trigger.device_id %}
+          {% set a = area_id(trigger.device_id) %}
+          {% if a %}{% set ns.p = area_entities(a) | select('in', players) | first | default('') %}{% endif %}
+        {% endif %}
+        {{ ns.p or 'media_player.CHANGE_ME_default_player' }}
+  - if: "{{ query == '' }}"
+    then:
+      - action: media_player.media_play
+        target:
+          entity_id: "{{ player }}"
+    else:
+      - action: music_assistant.play_media
+        target:
+          entity_id: "{{ player }}"
+        data:
+          media_id: "{{ query }}"
+          enqueue: replace
+  - set_conversation_response: >-
+      Playing {{ query or 'music' }} on {{ state_attr(player, 'friendly_name') or player }}.
