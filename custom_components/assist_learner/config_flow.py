@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components.conversation import HOME_ASSISTANT_AGENT
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 
 from .const import (
@@ -39,6 +40,30 @@ from .const import (
 )
 from .players import list_players
 
+SELF_AGENT = "conversation.assist_learner"
+
+
+def target_error(hass: HomeAssistant, target: str) -> str | None:
+    """Why this target can't be used, or None. The target must be an LLM agent, not a local one."""
+    if target == HOME_ASSISTANT_AGENT:
+        return "agent_is_local"
+    if target == SELF_AGENT:
+        return "agent_is_self"
+    if hass.states.get(target) is None:
+        return "agent_not_found"
+    return None
+
+
+def _setup_schema(hass: HomeAssistant, language: str) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_TARGET_AGENT): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="conversation", exclude_entities=[HOME_ASSISTANT_AGENT, SELF_AGENT])
+            ),
+            vol.Required(CONF_LANGUAGE, default=language): str,
+        }
+    )
+
 
 class AssistLearnerConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
@@ -49,27 +74,32 @@ class AssistLearnerConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         warnings_note = ""
         if user_input is not None:
-            target = user_input[CONF_TARGET_AGENT]
-            ent = self.hass.states.get(target)
-            if ent is None:
-                errors[CONF_TARGET_AGENT] = "agent_not_found"
-            elif target == "conversation.assist_learner":
-                errors[CONF_TARGET_AGENT] = "agent_is_self"
+            if err := target_error(self.hass, user_input[CONF_TARGET_AGENT]):
+                errors[CONF_TARGET_AGENT] = err
             else:
                 return self.async_create_entry(title=NAME, data=user_input)
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_TARGET_AGENT): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="conversation")
-                ),
-                vol.Required(CONF_LANGUAGE, default=self.hass.config.language): str,
-            }
-        )
+        schema = _setup_schema(self.hass, self.hass.config.language)
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
             errors=errors,
             description_placeholders={"note": warnings_note},
+        )
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Change the target agent / language without losing learned data."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if err := target_error(self.hass, user_input[CONF_TARGET_AGENT]):
+                errors[CONF_TARGET_AGENT] = err
+            else:
+                return self.async_update_reload_and_abort(entry, data_updates=user_input)
+        schema = _setup_schema(self.hass, entry.data[CONF_LANGUAGE])
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input or dict(entry.data)),
+            errors=errors,
         )
 
     @staticmethod

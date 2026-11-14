@@ -8,14 +8,24 @@
           "target_agent": "Target conversation agent",
           "language": "Language"
         }
+      },
+      "reconfigure": {
+        "title": "Change target agent",
+        "description": "Pick the LLM conversation agent that unmatched requests are forwarded to. Learned sentences and commands are kept.",
+        "data": {
+          "target_agent": "Target conversation agent",
+          "language": "Language"
+        }
       }
     },
     "error": {
       "agent_not_found": "That conversation agent was not found.",
-      "agent_is_self": "The target cannot be Assist Learner itself."
+      "agent_is_self": "The target cannot be Assist Learner itself.",
+      "agent_is_local": "That is Home Assistant's own local agent. Pick your LLM agent (e.g. Claude); local sentences are already tried before Assist Learner when 'Prefer handling commands locally' is on."
     },
     "abort": {
-      "already_configured": "Assist Learner is already set up."
+      "already_configured": "Assist Learner is already set up.",
+      "reconfigure_successful": "Target agent updated."
     }
   },
   "options": {
@@ -202,6 +212,10 @@
           "invalid_template": "Template rejected by safety checks."
         }
       }
+    },
+    "target_not_llm": {
+      "title": "Assist Learner forwards to a local agent",
+      "description": "Assist Learner's target agent is `{target}`, which is not an LLM, so unmatched requests just fail with \"Sorry, I couldn't understand that\" and nothing is learned. Go to Settings > Devices & services > Assist Learner > three-dot menu > Reconfigure and pick your LLM conversation agent."
     }
   },
   "entity": {}

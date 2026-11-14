@@ -17,6 +17,25 @@ from .const import DOMAIN, STATUS_PENDING
 PREFIX = "proposal_"
 
 
+TARGET_ISSUE = "target_not_llm"
+
+
+def sync_target_issue(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Flag a target that is Home Assistant's own local agent (or us): nothing would ever reach the LLM."""
+    from .config_flow import target_error
+    from .const import CONF_TARGET_AGENT
+
+    target = entry.data[CONF_TARGET_AGENT]
+    err = target_error(hass, target)
+    if err in ("agent_is_local", "agent_is_self"):
+        ir.async_create_issue(
+            hass, DOMAIN, TARGET_ISSUE, is_fixable=False, severity=ir.IssueSeverity.ERROR,
+            translation_key=TARGET_ISSUE, translation_placeholders={"target": target},
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, TARGET_ISSUE)
+
+
 def sync_issues(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Create issues for pending proposals; delete issues for decided ones."""
     store = entry.runtime_data.store

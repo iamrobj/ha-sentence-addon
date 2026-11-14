@@ -21,7 +21,7 @@ from .const import CONF_RUN_TIME, DOMAIN
 from .handlers import async_register_intents, async_unregister_intents
 from .options import get_options
 from .panel import async_register_panel
-from .repairs import sync_issues
+from .repairs import sync_issues, sync_target_issue
 from .store import AssistLearnerStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AssistLearnerConfigEntry
         entry.runtime_data.async_add_listener(lambda: sync_issues(hass, entry))
     )
     sync_issues(hass, entry)
+    sync_target_issue(hass, entry)
     async_register_intents(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
