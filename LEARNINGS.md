@@ -124,6 +124,21 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
 - 2026-11-14 — With retention 0 (default), processed misses vanish from the Misses tab immediately, which looks like a
   bug. The proposer now records outcome counts (`runtime_data.last_run`, no raw text) and the panel explains a run.
 
+## Music-on-satellite recipe (docs/examples, verified on the live instance 2026-11-14)
+- 2026-11-14 — Sentence-trigger automations get `trigger.device_id` / `trigger.satellite_id` / `trigger.sentence`; intent_script
+  gets none of them, so "play on the calling device" needs an automation. Parse `trigger.sentence` yourself (wildcards plus
+  literal anchors like " by " / " in the " are ambiguous in hassil); only treat a trailing "in the X" as an area if X resolves
+  to an area or player, and retry "X by Y" as one title ("stand by me").
+- 2026-11-14 — **A `variables:` template that renders JSON-looking text is auto-parsed to a dict** inside automations (but not via
+  /api/template). Use `x if x is mapping else x | from_json`.
+- 2026-11-14 — Music Assistant (HA integration): its player for an ESPHome speaker has no area; match by friendly name. Search
+  results carry no provider field but `uri` shows it (`library://`, `tidal--id://`); Jellyfin content appears as `library://`.
+  An artist search often returns no library artist, only tracks. **Genres are not exposed** by the HA integration (search or
+  get_library), so genre matching is impossible there; use a playlist named after the genre.
+- 2026-11-14 — HA's REST config API (`/api/config/{automation,script}/config/<id>`) creates/updates automations and scripts;
+  `/api/template` renders templates against live state; `/api/conversation/process` with agent `conversation.home_assistant` runs
+  sentence triggers (no device_id). Token lives in `~/.config/ha/token` (never in the repo).
+
 ## Hardening
 - 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
   habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.

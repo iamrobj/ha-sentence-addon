@@ -1,58 +1,98 @@
 alias: Play music on the calling device
 description: >-
-  "play <anything>" plays via Music Assistant on the calling voice device's player.
-  Replies straight away; the search/playback runs in script.play_music_search (see
-  play-music-search-script.yaml), which announces on the satellite if it fails.
-  Player lookup: "on/in <area or player>" if said; else the Music Assistant player that
-  wraps the satellite's own media player (matched by name); else a Music Assistant player
-  in the satellite's area; else default_player below.
+  Voice: "play <artist | playlist | album | song>", "play <album | song> by <artist>", each with an
+  optional "in the <area>" / "on <player>" (default: the device you spoke to). Replies straight away;
+  the search/playback runs in script.play_music_search (play-music-search-script.yaml), which
+  announces on the satellite if it fails. The area is only used if it really is an area or a Music
+  Assistant player, so "play stand by me" and "play songs in the key of life" still work.
 mode: parallel
 triggers:
   - trigger: conversation
     command:
-      - "play {query} (on|in) [the] {where}"
       - "(play|put on) [some] {query}"
       - "play [some] music"
 variables:
-  # Optional: a Music Assistant media_player entity id used when no player is found
+  # Optional: a Music Assistant media_player entity id used when no player can be worked out
   default_player: ""
 actions:
   - variables:
-      query: "{{ trigger.slots.query | default('') }}"
-      where: "{{ trigger.slots.where | default('') }}"
-      player: >-
+      plan: >-
         {% set players = integration_entities('music_assistant')
              | select('match', 'media_player\.') | list %}
-        {% set ns = namespace(p='') %}
-        {% if where %}
-          {% set a = area_id(where) %}
-          {% if a %}{% set ns.p = area_entities(a) | select('in', players) | first | default('') %}{% endif %}
-          {% if not ns.p %}
-            {% for e in players if where | lower in (state_attr(e, 'friendly_name') or '') | lower %}
-              {% if not ns.p %}{% set ns.p = e %}{% endif %}
-            {% endfor %}
-          {% endif %}
-        {% elif trigger.device_id %}
-          {# 1. the MA player wrapping this satellite's own media player (same name) #}
-          {% set own = device_entities(trigger.device_id) | select('match', 'media_player\.') | list %}
-          {% for o in own %}
-            {% set oname = (state_attr(o, 'friendly_name') or '') | lower %}
-            {% for e in players if not ns.p and oname and (state_attr(e, 'friendly_name') or '') | lower == oname %}
-              {% set ns.p = e %}
-            {% endfor %}
+        {# a Music Assistant player for any media_player: itself, or the MA player with the same name #}
+        {% macro ma_for(e) -%}
+          {%- if e in players -%}{{ e }}
+          {%- else -%}
+            {%- set n = (state_attr(e, 'friendly_name') or '') | lower -%}
+            {%- for p in players if n and (state_attr(p, 'friendly_name') or '') | lower == n -%}
+              {%- if loop.first -%}{{ p }}{%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+        {%- endmacro %}
+        {# an area's Music Assistant player: media players on the area (or on its devices) #}
+        {% macro for_area(a) -%}
+          {%- set ns = namespace(p='') -%}
+          {%- set ents = area_entities(a) | list -%}
+          {%- for d in area_devices(a) -%}{%- set ents = ents + (device_entities(d) | list) -%}{%- endfor -%}
+          {%- for e in ents if e.startswith('media_player.') and not ns.p -%}
+            {%- set ns.p = ma_for(e) | trim -%}
+          {%- endfor -%}
+          {{ ns.p }}
+        {%- endmacro %}
+        {% macro resolve(w) -%}
+          {%- set ns = namespace(p='') -%}
+          {%- set a = area_id(w) -%}
+          {%- if a -%}{%- set ns.p = for_area(a) | trim -%}{%- endif -%}
+          {# "the kitchen speaker" / "kitchen room": an area whose name appears in what was said #}
+          {%- if not ns.p -%}
+            {%- for ar in areas() if not ns.p and (area_name(ar) | lower) in w -%}
+              {%- set ns.p = for_area(ar) | trim -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {%- if not ns.p -%}
+            {%- for p in players if w and w in (state_attr(p, 'friendly_name') or '') | lower and not ns.p -%}
+              {%- set ns.p = p -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.p }}
+        {%- endmacro %}
+
+        {% set s = (trigger.sentence | default('') | lower | trim) | regex_replace('[.!?,]+$', '') %}
+        {% set rest = s | regex_replace('^(please )?(play|put on)( some)? ?', '') | trim %}
+        {# optional "in the kitchen" / "on the kitchen speaker": only if it resolves to a player #}
+        {% set m = rest | regex_findall('^(.*) (?:in|on)(?: the)? (.+)$') %}
+        {% set ns = namespace(base=rest, player='', where='') %}
+        {% if m %}
+          {% set cand = resolve(m[0][1]) | trim %}
+          {% if cand %}{% set ns.player = cand %}{% set ns.base = m[0][0] %}{% set ns.where = m[0][1] %}{% endif %}
+        {% endif %}
+        {# the calling device's own player #}
+        {% if not ns.player and trigger.device_id %}
+          {% for e in device_entities(trigger.device_id) if e.startswith('media_player.') and not ns.player %}
+            {% set ns.player = ma_for(e) | trim %}
           {% endfor %}
-          {# 2. any MA player in the satellite's area #}
-          {% if not ns.p %}
+          {% if not ns.player %}
             {% set a = area_id(trigger.device_id) %}
-            {% if a %}{% set ns.p = area_entities(a) | select('in', players) | first | default('') %}{% endif %}
+            {% if a %}{% set ns.player = for_area(a) | trim %}{% endif %}
           {% endif %}
         {% endif %}
-        {{ ns.p or default_player }}
+        {# "<album or song> by <artist>": split on the last " by " #}
+        {% set title = ns.base %}{% set artist = '' %}
+        {% if ' by ' in ns.base %}
+          {% set parts = ns.base.rsplit(' by ', 1) %}
+          {% set title = parts[0] | trim %}{% set artist = parts[1] | trim %}
+        {% endif %}
+        {% if title in ['music', 'some music', ''] %}{% set title = '' %}{% endif %}
+        {{ {'query': title, 'artist': artist, 'full': ns.base, 'player': ns.player, 'where': ns.where} | to_json }}
+      query: "{{ (plan if plan is mapping else plan | from_json).query }}"
+      artist: "{{ (plan if plan is mapping else plan | from_json).artist }}"
+      full: "{{ (plan if plan is mapping else plan | from_json).full }}"
+      player: "{{ (plan if plan is mapping else plan | from_json).player or default_player }}"
   - if: "{{ player == '' }}"
     then:
       - set_conversation_response: >-
-          I couldn't find a Music Assistant player for this device. Put the speaker's Music
-          Assistant player in the same area as this voice assistant, or set a default player.
+          I couldn't find a Music Assistant player for that. Say the room, like "in the kitchen",
+          or set a default player in this automation.
       - stop: No Music Assistant player found
   # Fire and forget: script.turn_on returns immediately, so the reply isn't held up by the search
   - action: script.turn_on
@@ -62,6 +102,8 @@ actions:
       variables:
         player: "{{ player }}"
         query: "{{ query }}"
+        artist: "{{ artist }}"
+        full: "{{ full }}"
         satellite: "{{ trigger.satellite_id | default('', true) }}"
   - set_conversation_response: >-
-      {{ 'Playing ' ~ query if query else 'Resuming music' }}.
+      {{ 'Playing ' ~ query ~ (' by ' ~ artist if artist else '') if query else 'Resuming music' }}.

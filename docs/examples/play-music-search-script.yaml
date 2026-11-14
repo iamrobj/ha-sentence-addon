@@ -1,25 +1,32 @@
 # Script: Settings > Automations & scenes > Scripts > Create > (3 dots) Edit in YAML > paste this.
 # Save it with the entity id script.play_music_search (the automation calls it by that id).
 #
-# Finds `query` in Music Assistant, preferring your own library (where Jellyfin content lands, as
-# library:// items), plays it on `player`, then checks it actually started; if not, announces the
-# problem on the satellite that heard the request.
-#
-# 1. Library search: an item whose name is exactly the query (artist > playlist > album > track);
-#    else all library tracks whose artist is exactly the query ("play teddy swims" plays your
-#    Teddy Swims tracks).
-# 2. Otherwise search every provider (e.g. Tidal): exact name first, then library items, then
-#    artist > playlist > album > track > radio, then Music Assistant's own ranking.
+# Plays `query` (optionally "by `artist`") on `player`, then checks it actually started; if not,
+# announces the problem on the satellite that heard the request. Search order:
+#   1. your Music Assistant library (where Jellyfin content lands as library:// items)
+#   2. every connected provider (e.g. Tidal)
+# Within a search: with an artist -> an album, else a song, with exactly that name by that artist.
+# Without an artist -> exact name (artist > playlist > album > song); then a playlist whose name
+# contains it ("christmas music" -> playlist "Christmas"); then all of that artist's library songs.
+# If "X by Y" finds nothing, the whole phrase is searched as one name ("stand by me").
+# Genres: Music Assistant's Home Assistant integration does not expose genres, so they cannot be
+# matched; make a playlist named after the genre instead.
 alias: Play music search
 mode: parallel
 fields:
   player:
     description: Music Assistant media_player entity id
   query:
-    description: What to play (empty = resume)
+    description: Artist, playlist, album or song (empty = resume)
+  artist:
+    description: Artist when the request was "<album or song> by <artist>" (optional)
+  full:
+    description: The whole phrase before splitting on "by" (optional)
   satellite:
     description: assist_satellite entity id to announce failures on (optional)
 sequence:
+  - variables:
+      pick: ""
   - if: "{{ query == '' }}"
     then:
       - action: media_player.media_play
@@ -27,61 +34,170 @@ sequence:
           entity_id: "{{ player }}"
         continue_on_error: true
     else:
-      # ---- 1. your library (Jellyfin) ----
-      - action: music_assistant.search
-        data:
-          config_entry_id: "{{ config_entry_id(player) }}"
-          name: "{{ query }}"
-          limit: 25
-          library_only: true
-        response_variable: lib
-        continue_on_error: true
-      - variables:
-          pick: >-
-            {% set r = lib if lib is mapping else {} %}
-            {% set q = query | lower | trim %}
-            {% set ns = namespace(best=none, tracks=[]) %}
-            {% for t in ['artists', 'playlists', 'albums', 'tracks'] %}
-              {% for item in (r.get(t) or []) if ns.best is none and (item.name | default('') | lower | trim) == q %}
-                {% set ns.best = {'uri': item.uri | string, 'type': item.media_type | string, 'name': item.name} %}
-              {% endfor %}
-            {% endfor %}
-            {% if ns.best is none %}
-              {% for item in (r.get('tracks') or []) %}
-                {% if q in (item.artists | default([]) | map(attribute='name') | map('lower') | list) %}
-                  {% set ns.tracks = ns.tracks + [item.uri | string] %}
-                {% endif %}
-              {% endfor %}
-              {% if ns.tracks %}
-                {% set ns.best = {'uri': ns.tracks, 'type': 'track', 'name': query} %}
-              {% endif %}
-            {% endif %}
-            {{ ns.best }}
-      # ---- 2. everything else (streaming providers) ----
+      # ---- library: query by artist
       - if: "{{ not pick }}"
         then:
+          - variables:
+              sname: "{{ query }}"
+              sartist: "{{ artist }}"
           - action: music_assistant.search
             data:
               config_entry_id: "{{ config_entry_id(player) }}"
-              name: "{{ query }}"
-              limit: 10
-            response_variable: results
+              name: "{{ sname }}"
+              artist: "{{ sartist }}"
+              limit: 25
+              library_only: true
+            response_variable: res
             continue_on_error: true
           - variables:
               pick: >-
-                {% set r = results if results is mapping else {} %}
-                {% set q = query | lower | trim %}
-                {% set types = ['artists', 'playlists', 'albums', 'tracks', 'radio'] %}
+                {% set r = res if res is mapping else {} %}
+                {% set q = sname | lower | trim %}
+                {% set qn = q | regex_replace('^the ', '') | regex_replace(' (music|songs|tunes|playlist|tracks)$', '') | trim %}
+                {% set a = sartist | lower | trim %}
+                {% set ns = namespace(best=none, tracks=[]) %}
+                {% set order = ['albums', 'tracks'] if a else ['artists', 'playlists', 'albums', 'tracks'] %}
+                {% for t in order %}
+                  {% for item in (r.get(t) or []) if ns.best is none %}
+                    {% set nm = item.name | default('') | lower | trim %}
+                    {% set names = item.artists | default([]) | map(attribute='name') | map('lower') | list %}
+                    {% if (nm == q or nm == qn) and (not a or a in names) %}
+                      {% set ns.best = {'uri': item.uri | string, 'type': item.media_type | string, 'name': item.name} %}
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+                {% if ns.best is none and not a and qn | length >= 4 %}
+                  {% for item in (r.get('playlists') or []) if ns.best is none and qn in (item.name | default('') | lower) %}
+                    {% set ns.best = {'uri': item.uri | string, 'type': 'playlist', 'name': item.name} %}
+                  {% endfor %}
+                {% endif %}
+                {% if ns.best is none and not a %}
+                  {% for item in (r.get('tracks') or []) %}
+                    {% if q in (item.artists | default([]) | map(attribute='name') | map('lower') | list) %}
+                      {% set ns.tracks = ns.tracks + [item.uri | string] %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if ns.tracks %}{% set ns.best = {'uri': ns.tracks, 'type': 'track', 'name': sname} %}{% endif %}
+                {% endif %}
+                {{ ns.best }}
+      # ---- library: (full or query) 
+      - if: "{{ not pick and artist != '' }}"
+        then:
+          - variables:
+              sname: "{{ (full or query) }}"
+              sartist: "{{ '' }}"
+          - action: music_assistant.search
+            data:
+              config_entry_id: "{{ config_entry_id(player) }}"
+              name: "{{ sname }}"
+              artist: "{{ sartist }}"
+              limit: 25
+              library_only: true
+            response_variable: res
+            continue_on_error: true
+          - variables:
+              pick: >-
+                {% set r = res if res is mapping else {} %}
+                {% set q = sname | lower | trim %}
+                {% set qn = q | regex_replace('^the ', '') | regex_replace(' (music|songs|tunes|playlist|tracks)$', '') | trim %}
+                {% set a = sartist | lower | trim %}
+                {% set ns = namespace(best=none, tracks=[]) %}
+                {% set order = ['albums', 'tracks'] if a else ['artists', 'playlists', 'albums', 'tracks'] %}
+                {% for t in order %}
+                  {% for item in (r.get(t) or []) if ns.best is none %}
+                    {% set nm = item.name | default('') | lower | trim %}
+                    {% set names = item.artists | default([]) | map(attribute='name') | map('lower') | list %}
+                    {% if (nm == q or nm == qn) and (not a or a in names) %}
+                      {% set ns.best = {'uri': item.uri | string, 'type': item.media_type | string, 'name': item.name} %}
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+                {% if ns.best is none and not a and qn | length >= 4 %}
+                  {% for item in (r.get('playlists') or []) if ns.best is none and qn in (item.name | default('') | lower) %}
+                    {% set ns.best = {'uri': item.uri | string, 'type': 'playlist', 'name': item.name} %}
+                  {% endfor %}
+                {% endif %}
+                {% if ns.best is none and not a %}
+                  {% for item in (r.get('tracks') or []) %}
+                    {% if q in (item.artists | default([]) | map(attribute='name') | map('lower') | list) %}
+                      {% set ns.tracks = ns.tracks + [item.uri | string] %}
+                    {% endif %}
+                  {% endfor %}
+                  {% if ns.tracks %}{% set ns.best = {'uri': ns.tracks, 'type': 'track', 'name': sname} %}{% endif %}
+                {% endif %}
+                {{ ns.best }}
+      # ---- global: query by artist
+      - if: "{{ not pick }}"
+        then:
+          - variables:
+              sname: "{{ query }}"
+              sartist: "{{ artist }}"
+          - action: music_assistant.search
+            data:
+              config_entry_id: "{{ config_entry_id(player) }}"
+              name: "{{ sname }}"
+              artist: "{{ sartist }}"
+              limit: 10
+            response_variable: res
+            continue_on_error: true
+          - variables:
+              pick: >-
+                {% set r = res if res is mapping else {} %}
+                {% set q = sname | lower | trim %}
+                {% set qn = q | regex_replace('^the ', '') | regex_replace(' (music|songs|tunes|playlist|tracks)$', '') | trim %}
+                {% set a = sartist | lower | trim %}
+                {% set types = ['albums', 'tracks'] if a else ['artists', 'playlists', 'albums', 'tracks', 'radio'] %}
                 {% set ns = namespace(best=none, key=999999) %}
                 {% for t in types %}
                   {% for item in (r.get(t) or []) %}
                     {% set uri = item.uri | default('') | string %}
+                    {% set nm = item.name | default('') | lower | trim %}
+                    {% set names = item.artists | default([]) | map(attribute='name') | map('lower') | list %}
                     {% set source = 0 if uri.startswith('library://') else 1 %}
-                    {% set exact = 0 if (item.name | default('') | lower | trim) == q else 1 %}
-                    {% set key = exact * 10000 + source * 1000 + types.index(t) * 100 + loop.index0 %}
+                    {% set exact = 0 if (nm == q or nm == qn) else 1 %}
+                    {% set wrong_artist = 5000 if (a and a not in names) else 0 %}
+                    {% set key = exact * 10000 + wrong_artist + source * 1000 + types.index(t) * 100 + loop.index0 %}
                     {% if key < ns.key %}
                       {% set ns.key = key %}
-                      {% set ns.best = {'uri': uri, 'type': item.media_type | default('') | string, 'name': item.name | default(query)} %}
+                      {% set ns.best = {'uri': uri, 'type': item.media_type | default('') | string, 'name': item.name | default(sname)} %}
+                    {% endif %}
+                  {% endfor %}
+                {% endfor %}
+                {{ ns.best }}
+      # ---- global: (full or query) 
+      - if: "{{ not pick and artist != '' }}"
+        then:
+          - variables:
+              sname: "{{ (full or query) }}"
+              sartist: "{{ '' }}"
+          - action: music_assistant.search
+            data:
+              config_entry_id: "{{ config_entry_id(player) }}"
+              name: "{{ sname }}"
+              artist: "{{ sartist }}"
+              limit: 10
+            response_variable: res
+            continue_on_error: true
+          - variables:
+              pick: >-
+                {% set r = res if res is mapping else {} %}
+                {% set q = sname | lower | trim %}
+                {% set qn = q | regex_replace('^the ', '') | regex_replace(' (music|songs|tunes|playlist|tracks)$', '') | trim %}
+                {% set a = sartist | lower | trim %}
+                {% set types = ['albums', 'tracks'] if a else ['artists', 'playlists', 'albums', 'tracks', 'radio'] %}
+                {% set ns = namespace(best=none, key=999999) %}
+                {% for t in types %}
+                  {% for item in (r.get(t) or []) %}
+                    {% set uri = item.uri | default('') | string %}
+                    {% set nm = item.name | default('') | lower | trim %}
+                    {% set names = item.artists | default([]) | map(attribute='name') | map('lower') | list %}
+                    {% set source = 0 if uri.startswith('library://') else 1 %}
+                    {% set exact = 0 if (nm == q or nm == qn) else 1 %}
+                    {% set wrong_artist = 5000 if (a and a not in names) else 0 %}
+                    {% set key = exact * 10000 + wrong_artist + source * 1000 + types.index(t) * 100 + loop.index0 %}
+                    {% if key < ns.key %}
+                      {% set ns.key = key %}
+                      {% set ns.best = {'uri': uri, 'type': item.media_type | default('') | string, 'name': item.name | default(sname)} %}
                     {% endif %}
                   {% endfor %}
                 {% endfor %}
@@ -94,7 +210,7 @@ sequence:
                 target:
                   entity_id: "{{ satellite }}"
                 data:
-                  message: "Sorry, I couldn't find {{ query }} in Music Assistant."
+                  message: "Sorry, I couldn't find {{ query }}{{ ' by ' ~ artist if artist else '' }} in Music Assistant."
                 continue_on_error: true
           - stop: Nothing found
       - action: music_assistant.play_media
