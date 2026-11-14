@@ -1,0 +1,87 @@
+# Script: Settings > Automations & scenes > Scripts > Create > (3 dots) Edit in YAML > paste this.
+# Save it with the entity id script.play_music_search (the automation calls it by that id).
+#
+# Finds `query` in Music Assistant, preferring Jellyfin, plays it on `player`, then checks it
+# actually started; if not, announces the problem on the satellite that heard the request.
+#
+# Preference: an exact name match first (so "play teddy swims" picks the artist, not a fuzzy
+# hit). Among equally good matches: Jellyfin items (uri "jellyfin--...://"), then items in your
+# Music Assistant library ("library://", where synced Jellyfin content usually shows up), then
+# anything else (streaming providers). Then artist > playlist > album > track > radio, then Music
+# Assistant's own ranking.
+alias: Play music search
+mode: parallel
+fields:
+  player:
+    description: Music Assistant media_player entity id
+  query:
+    description: What to play (empty = resume)
+  satellite:
+    description: assist_satellite entity id to announce failures on (optional)
+sequence:
+  - if: "{{ query == '' }}"
+    then:
+      - action: media_player.media_play
+        target:
+          entity_id: "{{ player }}"
+        continue_on_error: true
+    else:
+      - action: music_assistant.search
+        data:
+          config_entry_id: "{{ config_entry_id(player) }}"
+          name: "{{ query }}"
+          limit: 10
+        response_variable: results
+        continue_on_error: true
+      - variables:
+          pick: >-
+            {% set r = results if results is mapping else {} %}
+            {% set q = query | lower | trim %}
+            {% set types = ['artists', 'playlists', 'albums', 'tracks', 'radio'] %}
+            {% set ns = namespace(best=none, key=999999) %}
+            {% for t in types %}
+              {% for item in (r.get(t) or []) %}
+                {% set uri = item.uri | default('') | string %}
+                {% set source = 0 if uri.startswith('jellyfin') else (1 if uri.startswith('library://') else 2) %}
+                {% set exact = 0 if (item.name | default('') | lower | trim) == q else 1 %}
+                {% set key = exact * 10000 + source * 1000 + types.index(t) * 100 + loop.index0 %}
+                {% if key < ns.key %}
+                  {% set ns.key = key %}
+                  {% set ns.best = {'uri': uri, 'type': item.media_type | default('') | string, 'name': item.name | default(query)} %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.best }}
+      - if: "{{ not pick }}"
+        then:
+          - if: "{{ satellite != '' }}"
+            then:
+              - action: assist_satellite.announce
+                target:
+                  entity_id: "{{ satellite }}"
+                data:
+                  message: "Sorry, I couldn't find {{ query }} in Music Assistant."
+                continue_on_error: true
+          - stop: Nothing found
+      - action: music_assistant.play_media
+        target:
+          entity_id: "{{ player }}"
+        data:
+          media_id: "{{ pick.uri }}"
+          media_type: "{{ pick.type }}"
+          enqueue: replace
+        continue_on_error: true
+  # Did it actually start? (play_media errors are swallowed above so we always get here)
+  - wait_template: "{{ is_state(player, 'playing') }}"
+    timeout: "00:00:20"
+    continue_on_timeout: true
+  - if: "{{ not wait.completed and satellite != '' }}"
+    then:
+      - action: assist_satellite.announce
+        target:
+          entity_id: "{{ satellite }}"
+        data:
+          message: >-
+            Sorry, {{ query or 'the music' }} didn't start playing on
+            {{ state_attr(player, 'friendly_name') or player }}.
+        continue_on_error: true

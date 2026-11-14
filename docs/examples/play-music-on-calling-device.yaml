@@ -1,9 +1,11 @@
 alias: Play music on the calling device
 description: >-
   "play <anything>" plays via Music Assistant on the calling voice device's player.
+  Replies straight away; the search/playback runs in script.play_music_search (see
+  play-music-search-script.yaml), which announces on the satellite if it fails.
   Player lookup: "on/in <area or player>" if said; else the Music Assistant player that
   wraps the satellite's own media player (matched by name); else a Music Assistant player
-  in the satellite's area; else default_player below. Says so if none is found.
+  in the satellite's area; else default_player below.
 mode: parallel
 triggers:
   - trigger: conversation
@@ -12,7 +14,7 @@ triggers:
       - "(play|put on) [some] {query}"
       - "play [some] music"
 variables:
-  # Optional: set to a Music Assistant media_player entity id, e.g. media_player.kitchen_2
+  # Optional: a Music Assistant media_player entity id used when no player is found
   default_player: ""
 actions:
   - variables:
@@ -52,17 +54,14 @@ actions:
           I couldn't find a Music Assistant player for this device. Put the speaker's Music
           Assistant player in the same area as this voice assistant, or set a default player.
       - stop: No Music Assistant player found
-  - if: "{{ query == '' }}"
-    then:
-      - action: media_player.media_play
-        target:
-          entity_id: "{{ player }}"
-    else:
-      - action: music_assistant.play_media
-        target:
-          entity_id: "{{ player }}"
-        data:
-          media_id: "{{ query }}"
-          enqueue: replace
+  # Fire and forget: script.turn_on returns immediately, so the reply isn't held up by the search
+  - action: script.turn_on
+    target:
+      entity_id: script.play_music_search
+    data:
+      variables:
+        player: "{{ player }}"
+        query: "{{ query }}"
+        satellite: "{{ trigger.satellite_id | default('', true) }}"
   - set_conversation_response: >-
-      Playing {{ query or 'music' }} on {{ state_attr(player, 'friendly_name') or player }}.
+      {{ 'Playing ' ~ query if query else 'Resuming music' }}.
