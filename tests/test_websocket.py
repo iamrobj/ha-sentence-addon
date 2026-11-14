@@ -30,7 +30,8 @@ async def test_learning_flow_over_websocket(hass, hass_ws_client):
     client = await hass_ws_client(hass)
     entry.runtime_data.store.misses.put("m0", _miss(0, "put on Lose Control from Teddy Swims").as_dict())
 
-    assert (await call(client, "run_proposer"))["result"] == {"created": 1}
+    run = (await call(client, "run_proposer"))["result"]
+    assert run["created"] == 1 and run["summary"]["considered"] == 1 and run["summary"]["created"] == 1
     pending = (await call(client, "proposals/list"))["result"]
     assert pending[0]["template"] == "put on {track} from {artist}"
     assert (await call(client, "overview"))["result"]["pending_proposals"] == 1

@@ -103,7 +103,7 @@ async def h_misses_export(hass, entry, msg):
 
 async def h_run_proposer(hass, entry, msg):
     created = await async_run_proposer(hass, entry)
-    return {"created": len(created)}
+    return {"created": len(created), "summary": entry.runtime_data.last_run}
 
 
 async def h_sentences_list(hass, entry, msg):

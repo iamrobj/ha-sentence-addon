@@ -103,6 +103,12 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
         for m in store.misses.values()
         if not m.get("processed") and m.get("timestamp", "") >= cutoff
     ]
+    # what happened to each request, so "0 new proposals" can be explained (counts only, no raw text)
+    summary = dict.fromkeys(
+        ("considered", "failed", "not_learnable", "unalignable", "waiting", "already_known", "added_to_pending",
+         "dropped", "capped", "created"), 0
+    )
+    summary["considered"] = len(misses)
 
     # fingerprint -> (candidate, [misses that produced it])
     grouped: dict[str, tuple[Candidate, list[MissRecord]]] = {}
@@ -116,6 +122,7 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
                 _LOGGER.exception("Could not extract a template from a miss")
                 cand = None
             if cand is None:
+                summary["unalignable"] += 1
                 miss.unalignable = True
                 miss.processed = True
                 store.misses.put(miss.id, miss.as_dict())
@@ -127,7 +134,8 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
                 grouped[fp] = (cand, [miss])
             break
         else:
-            # no learner cares about this miss: nothing to learn, mark done
+            # no learner cares about this miss (failed, or not a music request): nothing to learn, mark done
+            summary["not_learnable" if miss.success else "failed"] += 1
             miss.processed = True
             store.misses.put(miss.id, miss.as_dict())
 
@@ -142,6 +150,7 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
     ready: list[tuple[Candidate, list[MissRecord], int, dict | None]] = []
     for fp, (cand, group) in grouped.items():
         if fp in rejected or fp in learned_fps:
+            summary["already_known"] += len(group)
             _finish(store, group, None)
             continue
         row = store.candidates.get(fp) or {
@@ -162,9 +171,11 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
                     p["examples"].append(m.text)
             store.proposals.put(p["id"], p)
             store.candidates.put(fp, row)
+            summary["added_to_pending"] += len(group)
             _finish(store, group, p["id"])
             continue
         if total < opts[CONF_MIN_OCCURRENCES]:
+            summary["waiting"] += len(group)
             store.candidates.put(fp, row)
             _finish(store, group, None)
             continue
@@ -182,6 +193,7 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
         )
         if not check.ok:
             _LOGGER.debug("Dropped template (%s)", check.drop_reason or check.block_reason)
+            summary["dropped"] += len(group)
             _finish(store, group, None)
             if check.block_reason:
                 store.candidates.put(
@@ -194,6 +206,7 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
             row = store.candidates.get(cand.fingerprint)
             row["count"] -= len(group)
             store.candidates.put(cand.fingerprint, row)
+            summary["capped"] += len(group)
             continue
         proposal = Proposal(
             id=uuid.uuid4().hex[:12],
@@ -217,6 +230,11 @@ async def async_run_proposer(hass: HomeAssistant, entry: ConfigEntry) -> list[Pr
         _finish(store, group, proposal.id)
         created.append(proposal)
 
+    summary["created"] = len(created)
+    summary["min_occurrences"] = opts[CONF_MIN_OCCURRENCES]
+    summary["retention_days"] = opts[CONF_RETENTION_DAYS]
+    summary["at"] = now.isoformat()
+    entry.runtime_data.last_run = summary
     _apply_retention(store, opts[CONF_RETENTION_DAYS], now)
     auto = 0
     if opts[CONF_AUTO_APPROVE]:

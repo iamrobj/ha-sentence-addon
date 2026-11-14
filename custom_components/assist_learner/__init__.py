@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -36,6 +37,7 @@ class RuntimeData:
     store: AssistLearnerStore
     listeners: list[Callable[[], None]] = field(default_factory=list)
     commands: CommandManager | None = None
+    last_run: dict[str, Any] = field(default_factory=dict)  # proposer outcome counts (no raw text)
 
     @callback
     def async_add_listener(self, cb: Callable[[], None]) -> Callable[[], None]:

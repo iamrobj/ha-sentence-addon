@@ -117,6 +117,13 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   domain.service"). Slots/actions are now JSON text fields; `normalise_result` parses them (tolerates ``` fences) and
   reports unparseable JSON as a warning.
 
+## Live-use findings (2026-11-14)
+- 2026-11-14 — Users can (and did) pick `conversation.home_assistant` as the target: every miss then fails in ms with
+  `no_intent_match` and nothing is learned. The picker now excludes it and us; Reconfigure changes the target without
+  losing data; a Repairs issue flags old entries.
+- 2026-11-14 — With retention 0 (default), processed misses vanish from the Misses tab immediately, which looks like a
+  bug. The proposer now records outcome counts (`runtime_data.last_run`, no raw text) and the panel explains a run.
+
 ## Hardening
 - 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
   habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.

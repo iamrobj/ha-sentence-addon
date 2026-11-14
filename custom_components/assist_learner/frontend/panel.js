@@ -52,6 +52,25 @@ const fromForm = (d) => ({
 
 const trimList = (xs) => xs.map((x) => String(x).trim()).filter(Boolean);
 const slotNames = (t) => [...new Set([...String(t).matchAll(/\{(\w+)\}/g)].map((m) => m[1]))];
+/** Plain-English account of a proposer run, so "0 new proposals" is never a mystery. */
+const describeRun = (r) => {
+  const s = r.summary || {};
+  if (!s.considered) return `${r.created} new proposal(s). No new requests to process (only requests that went to the LLM through Assist Learner are recorded).`;
+  const parts = [
+    [s.failed, "failed (the LLM agent returned an error), nothing to learn"],
+    [s.not_learnable, "not a kind Assist Learner can learn yet (only music play requests)"],
+    [s.unalignable, "couldn't be turned into a template"],
+    [s.waiting, `seen fewer than ${s.min_occurrences} times so far; counted, a proposal appears once it repeats`],
+    [s.already_known, "already learned or rejected"],
+    [s.added_to_pending, "added to an existing pending proposal"],
+    [s.dropped, "dropped by the safety checks"],
+    [s.capped, "held over (nightly proposal cap reached)"],
+  ].filter(([n]) => n).map(([n, why]) => `${n} ${why}`);
+  const kept = s.retention_days > 0 ? `Processed requests are kept for ${s.retention_days} day(s).`
+    : "Processed requests are deleted straight away (retention 0 days; change it in the options).";
+  return `${r.created} new proposal(s) from ${s.considered} request(s): ${parts.join("; ") || "all used"}. ${kept}`;
+};
+
 const LABEL = { learned: "learned", custom: "custom", external: "home assistant" };
 // Each editable kind: how stored fields map to the builder form, and how a save is sent.
 const KINDS = {
@@ -262,7 +281,7 @@ class AssistLearnerPanel extends LitElement {
   _renderPending() {
     const cmds = this._sentences.filter((s) => s.source === "custom" && s.status === "pending");
     return html`
-      <div class="row"><button @click=${() => this._run(async () => { const r = await this._ws("run_proposer"); this._info = `${r.created} new proposal(s)`; })}>Run proposer now</button></div>
+      <div class="row"><button @click=${() => this._run(async () => { const r = await this._ws("run_proposer"); this._info = describeRun(r); })}>Run proposer now</button></div>
       <h2>Learned from LLM fallbacks</h2>
       ${this._proposals.length === 0 ? html`<p class="muted">Nothing to review.</p>` : html`<div class="row">
         <button class="sec" @click=${() => this._bulk("approve")}>Approve all (${this._proposals.length})</button>

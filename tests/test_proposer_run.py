@@ -114,3 +114,15 @@ async def test_unalignable_flagged(hass):
 def test_core_of_detects_update():
     assert core_of("(play|put on) {track} [please] by {artist}") == "play {track} by {artist}"
     assert core_of("play {track} by {artist}") == core_of("[please] play {track} by {artist}")
+
+
+async def test_summary_explains_zero_proposals(hass, tmp_path):
+    """A failed request yields 0 proposals and is deleted (retention 0); the summary says why."""
+    hass.config.config_dir = str(tmp_path)
+    entry = await _entry(hass)
+    store = entry.runtime_data.store
+    store.misses.put("m0", _miss(0, "put on Lose Control from Teddy Swims", success=False).as_dict())
+    assert await async_run_proposer(hass, entry) == []
+    s = entry.runtime_data.last_run
+    assert s["considered"] == 1 and s["failed"] == 1 and s["created"] == 0
+    assert store.misses.values() == []  # retention 0: processed raw text is gone
