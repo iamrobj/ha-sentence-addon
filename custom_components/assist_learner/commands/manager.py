@@ -12,6 +12,7 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 
+from .. import recognizer
 from ..const import CONF_EXEC_LOG_SIZE, CONF_LANGUAGE
 from ..options import get_options
 from ..sentences import async_write_sentences
@@ -231,7 +232,10 @@ class CommandManager:
 
     # -- import ---------------------------------------------------------------------------------------
     async def import_discover(self) -> dict[str, Any]:
-        return await self.hass.async_add_executor_job(importer.discover_sync, self.hass, self.language)
+        # HA state is read here, in the event loop; files are read in the executor
+        autos = recognizer.automation_configs(self.hass)
+        conf = recognizer.config_intents(self.hass)
+        return await self.hass.async_add_executor_job(importer.discover_sync, self.hass, self.language, autos, conf)
 
     async def import_preview(self) -> list[dict[str, Any]]:
         cands = await self.hass.async_add_executor_job(importer.preview_sync, self.hass, self.language)

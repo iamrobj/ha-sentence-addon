@@ -369,7 +369,7 @@ class AssistLearnerPanel extends LitElement {
     const k = `ed_${r.source}_${r.id}`;
     return html`<div class="card ${r.enabled === false ? "off" : ""}">
       <div class="title" @click=${() => (this._open = { ...this._open, [key]: !open })}>
-        <span class="badge">${LABEL[r.source] || r.source}</span>${r.kind ? html` <span class="badge">${r.kind === "file" ? "sentence file" : r.kind}</span>` : nothing}
+        <span class="badge">${LABEL[r.source] || r.source}</span>${r.kind ? html` <span class="badge">${{ file: "sentence file", config: "configuration.yaml" }[r.kind] || r.kind}</span>` : nothing}
         <b>${r.title}</b>
         ${r.status ? html`<span class="badge">${r.status}</span>` : nothing}
         <span class="muted">${r.hits != null ? `${r.hits} hits - last ${fmt(r.last_used)}` : ""}</span>
@@ -402,7 +402,10 @@ class AssistLearnerPanel extends LitElement {
   _renderExternalButtons(r, k) {
     return html`<div class="row">
       ${r.external_editable ? html`<button class="sec" @click=${() => this._startEdit(r, k)}>Edit</button>`
-        : html`<span class="muted">Not editable here${r.kind === "automation" ? " (automation has no id; edit it in Home Assistant)" : ""}</span>`}
+        : html`<span class="muted">${{
+            automation: "Not editable here: this automation isn't in automations.yaml (package, include or no id). Edit it in Home Assistant.",
+            config: "Defined under conversation: intents: in your configuration; edit it there.",
+          }[r.kind] || "Not editable here"}</span>`}
       ${r.kind === "automation" && r.id ? html`<a class="sec" href="/config/automation/edit/${r.id}">Open automation in Home Assistant</a>` : nothing}
     </div>`;
   }

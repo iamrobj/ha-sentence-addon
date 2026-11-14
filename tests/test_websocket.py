@@ -116,7 +116,7 @@ async def test_misses_and_import_endpoints(hass, hass_ws_client):
     entry.runtime_data.store.misses.put("m0", _miss(0, "play something").as_dict())
     misses = (await call(client, "misses/list"))["result"]
     assert misses[0]["text"] == "play something"
-    assert (await call(client, "import/discover"))["result"] == {"files": [], "automations": []}
+    assert (await call(client, "import/discover"))["result"] == {"files": [], "automations": [], "config": []}
     assert (await call(client, "import/preview"))["result"] == []
     r = await call(client, "import/apply", intents=["Nope"])
     assert r["success"] and r["result"] == []

@@ -7,9 +7,53 @@ only needs fixing in one place. The adapter test in tests/test_recognizer.py fai
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components import conversation
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.util import language as language_util
+
+
+def sentences_language(language: str) -> str:
+    """The `custom_sentences/<dir>` HA actually loads for this language.
+
+    HA picks a supported language *variant* first (`en-GB` -> `en`, `de-DE` -> `de`) and only reads
+    `custom_sentences/<variant>/`. Reading or writing `custom_sentences/<raw language>/` silently misses files.
+    """
+    from home_assistant_intents import get_languages
+
+    matches = language_util.matches(language, set(get_languages()))
+    return matches[0] if matches else language
+
+
+def config_intents(hass: HomeAssistant) -> dict[str, Any]:
+    """Intents defined under `conversation: intents:` (configuration.yaml or packages), as HA loaded them.
+
+    Private HA state (agent manager); isolated here. Returns {} if the internals change.
+    """
+    try:
+        from homeassistant.components.conversation.agent_manager import get_agent_manager
+        from homeassistant.components.conversation.const import IntentSource
+
+        intents = get_agent_manager(hass)._intents[IntentSource.CONFIG]["intents"]  # noqa: SLF001
+    except Exception:  # internals moved: degrade to "none found"
+        return {}
+    return intents if isinstance(intents, dict) else {}
+
+
+def automation_configs(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Raw configs of every loaded automation (automations.yaml, packages, includes), with entity info."""
+    try:
+        from homeassistant.components.automation import DATA_COMPONENT
+    except ImportError:
+        return []
+    component = hass.data.get(DATA_COMPONENT)
+    out = []
+    for ent in component.entities if component else []:
+        raw = getattr(ent, "raw_config", None)
+        if isinstance(raw, dict):
+            out.append({"config": raw, "entity_id": ent.entity_id, "name": ent.name, "unique_id": ent.unique_id})
+    return out
 
 
 @dataclass

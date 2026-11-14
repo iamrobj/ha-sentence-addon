@@ -32,13 +32,19 @@ STRUCTURE: dict[str, Any] = {
         "required": True,
         "selector": {"text": {"multiple": True}},
     },
-    "slots": {"description": "Slot definitions object (may be empty)", "required": False, "selector": {"object": {}}},
+    # slots/actions are JSON *text*: an `object` selector without declared fields is converted by real AI Task
+    # providers into a schema that only allows an empty object (seen with the Anthropic AI Task entity).
+    "slots": {
+        "description": 'Slot definitions as a JSON object string, e.g. {"level":{"type":"number","min":0,"max":100,"step":1}}. Use "{}" for none.',
+        "required": False,
+        "selector": {"text": {"multiline": True}},
+    },
     "response_template": {"description": "Jinja spoken response", "required": True, "selector": {"text": {}}},
     "unavailable_template": {"description": "Spoken response when entities are unavailable", "required": False, "selector": {"text": {}}},
     "actions": {
-        "description": "Ordered service calls: {service, targets:[role], data:{field: literal or '{slot}'}}",
+        "description": 'Ordered service calls as a JSON array string, e.g. [{"service":"light.turn_on","targets":["lounge"],"data":{"brightness_pct":"{level}"}}]. Use "[]" for none.',
         "required": False,
-        "selector": {"object": {"multiple": True}},
+        "selector": {"text": {"multiline": True}},
     },
     "notes": {"description": "Short explanation of your choices", "required": False, "selector": {"text": {}}},
     "warnings": {"description": "Anything the user should double check", "required": False, "selector": {"text": {"multiple": True}}},
@@ -112,13 +118,21 @@ async def async_build_payload(
     }
 
 
-def _as_obj(value: Any) -> Any:
-    if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except ValueError:
-            return value
-    return value
+def _as_obj(value: Any, problems: list[str] | None = None, name: str = "") -> Any:
+    """Parse a JSON string field (tolerating ``` fences); report unparseable text instead of dropping it silently."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text.startswith("```"):
+        text = text.strip("`").removeprefix("json").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        if problems is not None:
+            problems.append(f"The LLM returned {name} that isn't valid JSON, so they were ignored: {text[:200]}")
+        return None
 
 
 def normalise_result(data: dict[str, Any]) -> dict[str, Any]:
@@ -128,8 +142,9 @@ def normalise_result(data: dict[str, Any]) -> dict[str, Any]:
     sentences = data.get("sentences") or []
     if isinstance(sentences, str):
         sentences = [sentences]
-    slots = _as_obj(data.get("slots")) or {}
-    actions = _as_obj(data.get("actions")) or []
+    problems: list[str] = []
+    slots = _as_obj(data.get("slots"), problems, "slots") or {}
+    actions = _as_obj(data.get("actions"), problems, "actions") or []
     if isinstance(actions, dict):
         actions = [actions]
     return {
@@ -140,7 +155,7 @@ def normalise_result(data: dict[str, Any]) -> dict[str, Any]:
         "response_template": str(data.get("response_template") or ""),
         "unavailable_template": str(data.get("unavailable_template") or ""),
         "notes": str(data.get("notes") or ""),
-        "warnings": [str(w) for w in (data.get("warnings") or [])],
+        "warnings": problems + [str(w) for w in (data.get("warnings") or [])],
     }
 
 

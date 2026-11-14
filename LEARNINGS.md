@@ -102,6 +102,21 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   `DefaultAgent.async_recognize_sentence_trigger` (matches only; despite its docstring it does not fire callbacks).
   Before this fix the test box ignored triggers and wrongly said "would go to the LLM".
 
+## Sentence sources (fixed 2026-11-14, found on a live en-GB install)
+- 2026-11-14 — **HA only loads `custom_sentences/<language variant>/`**: `language_util.matches(lang, get_languages())[0]`,
+  so `en-GB` -> `en`, `de-DE` -> `de`. We used the raw language, so on en-GB we (a) never saw the user's own files and
+  (b) wrote OUR sentence file to `custom_sentences/en-GB/` where HA never loaded it (learned templates and commands
+  silently stayed LLM-only). Always use `recognizer.sentences_language()`. The writer deletes the stale raw-language copy.
+- 2026-11-14 — HA-owned sentences come from: custom_sentences files (variant dir), `conversation: intents:` (read from the
+  agent manager's private CONFIG intents, isolated in `recognizer.config_intents`), and automations from ANY file
+  (automation entities' `raw_config`, `recognizer.automation_configs`). Only automations whose id is in
+  automations.yaml are editable; config intents are read-only. Fallback when automation isn't loaded: read
+  automations.yaml.
+- 2026-11-14 — **AI Task: never use a field-less `object` selector.** The real Anthropic AI Task entity turns it into a
+  schema that only allows `{}`, so generated slots and actions were always empty ("service must look like
+  domain.service"). Slots/actions are now JSON text fields; `normalise_result` parses them (tolerates ``` fences) and
+  reports unparseable JSON as a warning.
+
 ## Hardening
 - 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
   habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.
@@ -115,8 +130,8 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
 - Dev/CI runs HA 2026.10.4 (see Dev env gotchas); nothing has been run on 2026.11.x or a live instance.
 - Not yet verified on a live HA: which sentence wins when a custom and a built-in sentence both match (plan risk 10).
   The collision check therefore blocks approval by default; `accept_collisions` lets the user accept overlap.
-- The `ai_task.generate_data` structure (object selectors for slots/actions) is exercised only against a fake AI Task
-  entity; verify against the real Anthropic AI Task entity. `generate.normalise_result` also accepts JSON strings.
+- The `ai_task.generate_data` structure is exercised only against a fake AI Task entity. The object-selector problem
+  was found live and fixed (JSON text fields); re-verify generation of a slot + action command on the real entity.
 - Panel verified only with the jsdom smoke test, not visually in a browser.
 - Entity `supported_features` are not checked during action validation.
 - Sentence-trigger automations are discovered only from `automations.yaml`; intent_script only from `configuration.yaml`.

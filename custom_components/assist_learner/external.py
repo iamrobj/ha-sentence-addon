@@ -119,7 +119,7 @@ def update_automation_sync(hass: HomeAssistant, auto_id: str, fields: dict[str, 
 # ------------------------------------------------------------------------------ sentence files ----------
 def _sentence_file(hass: HomeAssistant, language: str, file: str) -> Path:
     """Resolve a client-supplied path, refusing anything outside custom_sentences/<lang> or our own file."""
-    root = Path(hass.config.path("custom_sentences", language)).resolve()
+    root = Path(hass.config.path("custom_sentences", recognizer.sentences_language(language))).resolve()
     path = Path(file).resolve()
     if not path.is_relative_to(root) or path.suffix != ".yaml" or path.name == OWN_FILE:
         raise ExternalEditError("Not an editable custom sentences file")

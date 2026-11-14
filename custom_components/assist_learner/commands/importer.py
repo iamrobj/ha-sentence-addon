@@ -14,6 +14,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util.yaml import load_yaml
 
+from ..recognizer import sentences_language
 from .model import new_command
 
 OWN_FILE = "assist_learner.yaml"
@@ -56,7 +57,7 @@ def _load(path: Path) -> Any:
 
 
 def _read_sentence_files(hass: HomeAssistant, language: str) -> list[ExternalIntent]:
-    root = Path(hass.config.path("custom_sentences", language))
+    root = Path(hass.config.path("custom_sentences", sentences_language(language)))
     out: list[ExternalIntent] = []
     if not root.is_dir():
         return out
@@ -83,11 +84,25 @@ def _read_intent_scripts(hass: HomeAssistant) -> dict[str, Any]:
     return scripts if isinstance(scripts, dict) else {}
 
 
-def _sentence_trigger_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
-    """One row per automation that has at least one conversation (sentence) trigger."""
+def _automations_yaml(hass: HomeAssistant) -> list[dict[str, Any]]:
     doc = _load(Path(hass.config.path("automations.yaml")))
+    return [a for a in doc if isinstance(a, dict)] if isinstance(doc, list) else []
+
+
+def _sentence_trigger_automations(
+    hass: HomeAssistant, loaded: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """One row per automation that has at least one conversation (sentence) trigger.
+
+    `loaded` are the configs of the automations HA actually loaded (any file: automations.yaml, packages,
+    includes). Without them (automation integration not loaded) fall back to reading automations.yaml.
+    Only automations whose id is in automations.yaml can be edited in place.
+    """
+    file_autos = _automations_yaml(hass)
+    file_ids = {str(a.get("id")) for a in file_autos if a.get("id") is not None}
+    configs = [x["config"] for x in loaded] if loaded else file_autos
     found: list[dict[str, Any]] = []
-    for auto in doc if isinstance(doc, list) else []:
+    for auto in configs:
         if not isinstance(auto, dict):
             continue
         triggers = auto.get("triggers") or auto.get("trigger") or []
@@ -101,15 +116,32 @@ def _sentence_trigger_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
                 cmds = t.get("command") or []
                 sentences += [str(cmds)] if isinstance(cmds, str) else [str(c) for c in cmds]
         if conv:
+            auto_id = auto.get("id")
             found.append(
-                {"kind": "automation", "id": auto.get("id"), "alias": auto.get("alias"), "sentences": sentences}
+                {
+                    "kind": "automation", "id": auto_id, "alias": auto.get("alias"), "sentences": sentences,
+                    "in_automations_yaml": auto_id is not None and str(auto_id) in file_ids,
+                }
             )
     return found
 
 
-def discover_sync(hass: HomeAssistant, language: str) -> dict[str, Any]:
-    """Read-only view of everything external that we don't manage."""
+def discover_sync(
+    hass: HomeAssistant,
+    language: str,
+    automations: list[dict[str, Any]] | None = None,
+    config_intents: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Everything Home Assistant owns that we don't manage (same sources HA's default agent uses)."""
     return {
+        "config": [
+            {
+                "kind": "config",
+                "intent": name,
+                "sentences": [str(s) for b in (body or {}).get("data") or [] for s in b.get("sentences") or []],
+            }
+            for name, body in (config_intents or {}).items()
+        ],
         "files": [
             {
                 "kind": "file",
@@ -122,7 +154,7 @@ def discover_sync(hass: HomeAssistant, language: str) -> dict[str, Any]:
         ],
         "automations": [
             {**a, "importable": False, "reason": "owned by an automation; importing would fire twice"}
-            for a in _sentence_trigger_automations(hass)
+            for a in _sentence_trigger_automations(hass, automations)
         ],
     }
 

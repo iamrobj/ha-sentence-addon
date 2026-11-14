@@ -26,6 +26,13 @@ COMMAND_INTENT = "AssistLearnerCustomCommand"
 
 
 def sentences_path(hass: HomeAssistant, language: str) -> Path:
+    return Path(hass.config.path("custom_sentences", recognizer.sentences_language(language), "assist_learner.yaml"))
+
+
+def _stale_path(hass: HomeAssistant, language: str) -> Path | None:
+    """Where versions before the variant fix wrote the file (HA never loaded it there unless equal)."""
+    if recognizer.sentences_language(language) == language:
+        return None
     return Path(hass.config.path("custom_sentences", language, "assist_learner.yaml"))
 
 
@@ -74,7 +81,7 @@ def build_document(
     if cmd_blocks:
         intents[COMMAND_INTENT] = {"data": cmd_blocks}
 
-    doc: dict[str, Any] = {"language": language}
+    doc: dict[str, Any] = {"language": recognizer.sentences_language(language)}
     if intents:
         doc["intents"] = intents
     if lists:
@@ -100,6 +107,8 @@ async def async_write_sentences(hass: HomeAssistant, entry: ConfigEntry) -> Path
         tmp = path.with_suffix(".yaml.tmp")
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(path)
+        if (stale := _stale_path(hass, language)) is not None and stale.exists():
+            stale.unlink()
 
     await hass.async_add_executor_job(_write)
     await recognizer.async_reload(hass, language)

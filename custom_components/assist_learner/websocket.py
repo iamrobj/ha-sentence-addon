@@ -138,7 +138,11 @@ async def h_sentences_list(hass, entry, msg):
     for a in ext["automations"]:
         rows.append({"source": "external", "kind": "automation", "id": a.get("id"), "title": a.get("alias"),
                      "sentences": a["sentences"], "editable": False, "importable": False,
-                     "external_editable": a.get("id") is not None})
+                     "external_editable": bool(a.get("in_automations_yaml"))})
+    for c in ext["config"]:
+        rows.append({"source": "external", "kind": "config", "id": f"config#{c['intent']}", "title": c["intent"],
+                     "sentences": c["sentences"], "editable": False, "importable": False,
+                     "external_editable": False, "file": "configuration.yaml (conversation: intents:)"})
     want = msg.get("source")
     return [r for r in rows if not want or r["source"] == want]
 
