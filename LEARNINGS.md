@@ -139,6 +139,12 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   `/api/template` renders templates against live state; `/api/conversation/process` with agent `conversation.home_assistant` runs
   sentence triggers (no device_id). Token lives in `~/.config/ha/token` (never in the repo).
 
+- 2026-11-14 — `music_assistant.play_media` of a huge provider **artist** (Tidal "Christmas Music") blocked for minutes, speaker idle, while
+  our reply had already said "Playing". Prefer playlists/albums for generic phrases ("... music/songs") and keep a parallel
+  watchdog that announces if the player is not `playing` after 20 s. Stop a stuck script run with `script.turn_off`.
+- 2026-11-14 — Satellite history shows `listening` for each wake detection; `unavailable` = the ESPHome device dropped. Reading device
+  logs needs the ESPHome API key (not available here).
+
 ## Hardening
 - 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
   habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.

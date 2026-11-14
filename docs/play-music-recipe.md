@@ -48,6 +48,12 @@ device you spoke to is used.
 ## Limits / gotchas
 - **Genres cannot be matched.** The Home Assistant Music Assistant integration exposes no genre data. Make a playlist named
   after the genre (it is matched by name, "contains").
+- **Generic phrases prefer playlists/albums over a provider artist**: "christmas music" exactly matches a huge Tidal *artist*
+  called "Christmas Music"; `music_assistant.play_media` on it never returned (queue stuck at ~7000 items, speaker idle after
+  saying "Playing"). The script now only treats a name as exact after dropping a trailing "music/songs/playlist", and puts
+  playlists and albums ahead of artists for such phrases.
+- `play_media` can hang, so a **watchdog** branch runs in parallel: if the player is not `playing` after 20 s it announces on
+  the satellite. (The reply "Playing X" is spoken before that, by design.)
 - Anything not in your library falls back to the provider's best guess, even for nonsense phrases.
 - A variable template that renders JSON-looking text is auto-parsed to a dict inside automations; the automation handles both.
 - Typed tests (`/api/conversation/process`, Assist dialog) have no device, so they need a spoken room or `default_player`.
