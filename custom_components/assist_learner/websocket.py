@@ -144,7 +144,13 @@ async def h_sentences_list(hass, entry, msg):
 
 
 async def h_sentences_test(hass, entry, msg):
-    """What would match this text, with the extracted slots? Nothing is executed."""
+    """What would match this text, with the extracted slots? Nothing is executed.
+
+    Same order as the voice pipeline: automation sentence triggers first, then intents.
+    """
+    if t := await recognizer.async_match_trigger(hass, msg["text"], entry.data[CONF_LANGUAGE]):
+        return {"matched": True, "intent": "sentence trigger", "slots": t.slots, "source": "automation",
+                "title": f"automation sentence trigger: {t.template}" if t.template else "automation sentence trigger"}
     m = await recognizer.async_match(hass, msg["text"], entry.data[CONF_LANGUAGE])
     if m is None:
         return {"matched": False}

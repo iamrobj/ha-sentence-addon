@@ -95,6 +95,13 @@ Format: `- YYYY-MM-DD — <learning> (why / how to apply)`.
   packages / other files) are read-only. UI label for `source: external` is "home assistant".
 - Builder/YAML editor has only had the jsdom smoke test, not a real browser.
 
+## Routing facts
+- 2026-11-14 — The voice pipeline (`assist_pipeline/default_pipeline.py`) runs automation **sentence triggers before
+  any non-default conversation agent**, ours included; then, if `prefer_local_intents`, local intents; only then our
+  agent. So a sentence-trigger match never reaches Assist Learner or the LLM. The test box mirrors this order using
+  `DefaultAgent.async_recognize_sentence_trigger` (matches only; despite its docstring it does not fire callbacks).
+  Before this fix the test box ignored triggers and wrongly said "would go to the LLM".
+
 ## Hardening
 - 2026-11-13 — Diagnostics must redact miss `actions`/`tool_calls` too: they carry track/artist names (listening
   habits), not just the utterance. Command `actions` are config, not user data, so they are NOT redacted there.

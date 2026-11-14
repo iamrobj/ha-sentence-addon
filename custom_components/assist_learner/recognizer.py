@@ -18,12 +18,8 @@ class Match:
     slots: dict[str, str]
 
 
-async def async_match(hass: HomeAssistant, text: str, language: str) -> Match | None:
-    """Return the intent the built-in recognizer (incl. custom sentences) would match, or None."""
-    agent = conversation.async_get_agent(hass)
-    if agent is None or not hasattr(agent, "async_recognize_intent"):
-        return None
-    user_input = conversation.ConversationInput(
+def _input(text: str, language: str) -> conversation.ConversationInput:
+    return conversation.ConversationInput(
         text=text,
         context=Context(),
         conversation_id=None,
@@ -32,7 +28,37 @@ async def async_match(hass: HomeAssistant, text: str, language: str) -> Match | 
         language=language,
         agent_id=conversation.HOME_ASSISTANT_AGENT,
     )
-    result = await agent.async_recognize_intent(user_input)
+
+
+@dataclass
+class TriggerMatch:
+    template: str | None
+    slots: dict[str, str]
+
+
+async def async_match_trigger(hass: HomeAssistant, text: str, language: str) -> TriggerMatch | None:
+    """Would an automation's sentence trigger catch this text? Matching only; nothing is fired.
+
+    The voice pipeline runs sentence triggers BEFORE any non-default conversation agent (including ours), so
+    a trigger match never reaches Assist Learner or the LLM.
+    """
+    agent = conversation.async_get_agent(hass)
+    if agent is None or not hasattr(agent, "async_recognize_sentence_trigger"):
+        return None
+    result = await agent.async_recognize_sentence_trigger(_input(text, language))
+    if result is None:
+        return None
+    first = next(iter(result.matched_triggers.values()))
+    slots = {name: str(s.value) for name, s in first.entities.items()}
+    return TriggerMatch(template=result.sentence_template, slots=slots)
+
+
+async def async_match(hass: HomeAssistant, text: str, language: str) -> Match | None:
+    """Return the intent the built-in recognizer (incl. custom sentences) would match, or None."""
+    agent = conversation.async_get_agent(hass)
+    if agent is None or not hasattr(agent, "async_recognize_intent"):
+        return None
+    result = await agent.async_recognize_intent(_input(text, language))
     if result is None or result.unmatched_entities:
         # HA returns partial matches (unmatched entities) for error messaging; not a real match
         return None

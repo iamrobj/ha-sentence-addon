@@ -152,3 +152,23 @@ async def test_from_yaml_rejects_bad_input(hass, hass_ws_client, text, msg):
     client = await hass_ws_client(hass)
     resp = await call(client, "yaml/parse", yaml=text)
     assert resp["success"] is False and msg in resp["error"]["message"]
+
+
+async def test_test_box_reports_sentence_trigger_without_firing(hass, hass_ws_client):
+    """The pipeline runs sentence triggers before our agent, so the test box must check them first."""
+    from homeassistant.setup import async_setup_component
+
+    await _setup(hass)
+    fired = []
+    hass.bus.async_listen("al_test_fired", lambda e: fired.append(e))
+    assert await async_setup_component(hass, "automation", {"automation": {
+        "triggers": {"trigger": "conversation", "command": ["play {query}", "play {query} on the {device}"]},
+        "actions": {"event": "al_test_fired"},
+    }})
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+    t = (await call(client, "sentences/test", text="play teddy swims"))["result"]
+    assert t["matched"] and t["source"] == "automation" and t["slots"] == {"query": "teddy swims"}
+    assert "play {query}" in t["title"]
+    await hass.async_block_till_done()
+    assert fired == []
