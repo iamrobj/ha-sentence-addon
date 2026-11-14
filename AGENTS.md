@@ -27,6 +27,15 @@ Target HA: **2026.11.x**, Python 3.14.
 - No Docker access on the dev machine; tests use `pytest-homeassistant-custom-component` against pip-installed HA.
 - Lint/format: `ruff` (config in `pyproject.toml`).
 
+## Live instance
+Rob's HA instance may be reachable for verification (REST config API, `/api/template`, traces). The token lives in
+`~/.config/ha/token`; never print it, commit it, or send it anywhere but that instance. Ask before changing the
+instance; back up what you overwrite. See `LEARNINGS.md` ("Music-on-satellite recipe").
+
+## Docs to keep current
+`README.md` (install/usage), `docs/play-music-recipe.md` (+ `docs/examples/`), `docs/troubleshooting.md`, `LEARNINGS.md`.
+Any user-visible change updates the relevant doc in the same commit.
+
 ## Layout
 See plan §4. Tests in `tests/`. Spike notes in `docs/spike-notes.md`.
 
